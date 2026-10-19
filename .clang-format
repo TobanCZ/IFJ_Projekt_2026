@@ -1,0 +1,31 @@
+---
+BasedOnStyle: LLVM
+Language: C
+
+# Odsazení na 4 mezery (místo standardních 2 v LLVM)
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+# Maximální délka řádku
+ColumnLimit: 100
+
+# Složené závorky u funkcí a struktur na novém řádku, u příkazů (if/while) na stejném
+BreakBeforeBraces: Attach
+
+# Zarovnávání ukazatelů k názvu proměnné (např. int *ptr)
+PointerAlignment: Right
+
+# Povolí zkrátit krátké if příkazy na jeden řádek, pokud se to vejde
+AllowShortBlocksOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+
+# Seskupování a řazení #include hlaviček
+SortIncludes: true
+
+# Zarovnávání hodnot za makry a v enum typech
+AlignConsecutiveMacros: true
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: false
+...
