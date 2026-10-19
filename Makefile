@@ -25,6 +25,10 @@ $(TARGET): $(OBJS)
 src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+#Rovnou spusti
+run: build
+	./$(TARGET)
+
 # Úklid po překladu
 clean:
 	rm -f $(OBJS) $(TARGET)
