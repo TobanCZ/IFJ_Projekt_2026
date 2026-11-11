@@ -3,7 +3,7 @@
 */
 
 
-
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "scanner.h"
@@ -13,6 +13,11 @@
 // Line number of the character being read.
 static int current_line = 1;
 
+// Number of currently open parentheses.
+static int open_paren_depth = 0;
+
+// Logical line has no token yet.
+static bool line_is_empty = true;
 
 
 // Prints a lexical error to stderr and exits with code 1.
@@ -120,26 +125,76 @@ static Token operator_token(int character, int line)
 
 
 
+// Makes a token from a character that is not a space or a new line.
+static Token read_token(int character)
+{
+    Token new_token;
+
+    line_is_empty = false;
+    new_token = operator_token(character, current_line);
+
+    if (new_token.type == TOKEN_PUNCTUATION_LEFT_PAREN)
+    {
+        open_paren_depth++;
+    }
+    else if (new_token.type == TOKEN_PUNCTUATION_RIGHT_PAREN && open_paren_depth > 0)
+    {
+        open_paren_depth--;
+    }
+    return new_token;
+}
+
+
+
+// Returns true if the line that just ended needs an EOL token.
+static bool handle_new_line(void)
+{
+    bool ends_line = (open_paren_depth == 0 && !line_is_empty);
+
+    current_line++;
+    if (ends_line)
+    {
+        line_is_empty = true;
+    }
+    return ends_line;
+}
+
+
+
 Token get_token(void)
 {
     int character;
 
-    for (character = getchar(); character != EOF; character = getchar())
+    for (;;)
     {
+        character = getchar();
+
+        if (character == EOF)
+        {
+            if (!line_is_empty)
+            {
+                line_is_empty = true;
+                return make_token(TOKEN_EOL, current_line);
+            }
+            return make_token(TOKEN_EOF, current_line);
+        }
+
+        if (character == ' ' || character == '\t')
+        {
+            continue;
+        }
+
         if (character == '\n')
         {
-            current_line++;
-        }
-        else if (character != ' ')
-        {
-            break;
-        }
-    }
+            int line = current_line;
 
-    if (character == EOF)
-    {
-        return make_token(TOKEN_EOF, current_line);
-    }
+            if (handle_new_line())
+            {
+                return make_token(TOKEN_EOL, line);
+            }
+            continue;
+        }
 
-    return operator_token(character, current_line);
+        return read_token(character);
+    }
 }

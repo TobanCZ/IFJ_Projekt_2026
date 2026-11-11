@@ -55,6 +55,11 @@ typedef enum
     TOKEN_PUNCTUATION_DOT,
     TOKEN_PUNCTUATION_AT,
     TOKEN_PUNCTUATION_SEMICOLON,
+    
+    // End of line and blocks.
+    TOKEN_EOL,
+    TOKEN_BLOCK_START,
+    TOKEN_BLOCK_END,
 
     // End of input.
     TOKEN_EOF
