@@ -1,23 +1,24 @@
 /*
     Implementace překladače imperativního jazyka IFJ26.
-    
+
 */
 #include <stdbool.h>
 
-typedef enum{
-    TYPE_INT, // integer type
+typedef enum {
+    TYPE_INT,    // integer type
     TYPE_DOUBLE, // double type
     TYPE_STRING, // string type
-    TYPE_BOOL, // boolean type
-    TYPE_UNIT, // unit type (void)
-}DataType;
+    TYPE_BOOL,   // boolean type
+    TYPE_UNIT,   // unit type (void)
+} DataType;
 
 typedef struct Symbol {
-    char *name;               // Název symbolu
-    DataType symbolType;      // Datový typ symbolu
-    int scopeLevel;           // Úroveň rozsahu (scope level) symbolu 0=> globální, 1=> lokální, 2=> vnořená funkce atd.
-    bool isFunction;          // Vyžaduje stdbool.h 
-    DataType *parameterTypes; // Dynamické pole typů 
+    char *name;          // Název symbolu
+    DataType symbolType; // Datový typ symbolu
+    int scopeLevel; // Úroveň rozsahu (scope level) symbolu 0=> globální, 1=> lokální, 2=> vnořená
+                    // funkce atd.
+    bool isFunction;          // Vyžaduje stdbool.h
+    DataType *parameterTypes; // Dynamické pole typů
     int paramCount;           // Počet parametrů ve výše uvedeném poli
 } Symbol;
 
@@ -28,12 +29,14 @@ typedef struct SymtableNode {
     struct SymtableNode *right; // Pravý potomek
 } SymtableNode;
 
-typedef SymtableNode* Symtable;
+typedef SymtableNode *Symtable;
 
 void symtable_init(Symtable *table); // Inicializace tabulky symbolů
 
-bool symtable_insert(Symtable *table, const char *key, Symbol data); // Vložení symbolu do tabulky symbolů
+bool symtable_insert(Symtable *table, const char *key,
+                     Symbol data); // Vložení symbolu do tabulky symbolů
 
-Symbol* symtable_find(Symtable *table, const char *key); // Vyhledání symbolu v tabulce symbolů podle klíče
+Symbol *symtable_find(Symtable *table,
+                      const char *key); // Vyhledání symbolu v tabulce symbolů podle klíče
 
 void symtable_destroy(Symtable *table); // Uvolnění paměti alokované pro tabulku symbolů a její uzly
