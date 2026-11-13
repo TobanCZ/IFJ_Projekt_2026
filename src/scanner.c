@@ -151,12 +151,68 @@ static bool handle_new_line(void)
 {
     bool ends_line = (open_paren_depth == 0 && !line_is_empty);
 
-    current_line++;
     if (ends_line)
     {
         line_is_empty = true;
     }
     return ends_line;
+}
+
+
+// Skips a line comment.
+static void skip_line_comment(void)
+{
+    int curr_char;
+
+    for (curr_char = getchar(); curr_char != '\n' && curr_char != EOF; curr_char = getchar())
+    {
+    }
+    if (curr_char == '\n')
+    {
+        ungetc(curr_char, stdin);
+    }
+}
+
+
+
+// Skips a block comment and returns true if the comment has a new line.
+static bool skip_block_comment(void)
+{
+    int comment_depth = 1;
+    bool has_new_line = false;
+    int starting_line = current_line;
+    int curr_char;
+
+    for (;;)
+    {
+        curr_char = getchar();
+
+        if (curr_char == EOF)
+        {
+            fprintf(stderr, "Lexical error, line %d: unclosed comment\n", starting_line);
+            exit(1);
+        }
+
+        if (curr_char == '/' && consume_if_next('*'))
+        {
+            comment_depth++;
+        }
+        else if (curr_char == '*' && consume_if_next('/'))
+        {
+            comment_depth--;
+            if (comment_depth == 0)
+            {
+                break;
+            }
+        }
+        else if (curr_char == '\n')
+        {
+            current_line++;
+            has_new_line = true;
+        }
+    }
+
+    return has_new_line;
 }
 
 
@@ -188,7 +244,25 @@ Token get_token(void)
         {
             int line = current_line;
 
+            current_line++;
             if (handle_new_line())
+            {
+                return make_token(TOKEN_EOL, line);
+            }
+            continue;
+        }
+
+        if (character == '/' && consume_if_next('/'))
+        {
+            skip_line_comment();
+            continue;
+        }
+
+        if (character == '/' && consume_if_next('*'))
+        {
+            int line = current_line;
+
+            if (skip_block_comment() && handle_new_line())
             {
                 return make_token(TOKEN_EOL, line);
             }
