@@ -13,10 +13,9 @@ typedef enum {
 } DataType;
 
 typedef struct Symbol {
-    char *name;          // Název symbolu
-    DataType symbolType; // Datový typ symbolu
-    int scopeLevel; // Úroveň rozsahu (scope level) symbolu 0=> globální, 1=> lokální, 2=> vnořená
-                    // funkce atd.
+    char *name;               // Název symbolu
+    DataType symbolType;      // Datový typ symbolu
+    int scopeLevel;           // Úroveň rozsahu (scope level) symbolu
     bool isFunction;          // Vyžaduje stdbool.h
     DataType *parameterTypes; // Dynamické pole typů
     int paramCount;           // Počet parametrů ve výše uvedeném poli
@@ -25,6 +24,7 @@ typedef struct Symbol {
 typedef struct SymtableNode {
     char *key;                  // Klíč (název symbolu)
     Symbol data;                // Data symbolu
+    int height;                 // Výška uzlu (pro AVL strom)
     struct SymtableNode *left;  // Levý potomek
     struct SymtableNode *right; // Pravý potomek
 } SymtableNode;
