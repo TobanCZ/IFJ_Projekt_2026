@@ -10,6 +10,21 @@
 
 
 
+// Maximum number of levels.
+#define MAX_DEPTH 256
+
+// Stack of levels.
+static int indent_levels[MAX_DEPTH] = { 0 };
+
+// Number of levels.
+static int current_depth = 1;
+
+// Tokens waiting for return.
+static int block_end_count = 0;
+
+// True when a token is waiting for return.
+static bool block_start = false;
+
 // Line number of the character being read.
 static int current_line = 1;
 
@@ -217,6 +232,39 @@ static bool skip_block_comment(void)
 
 
 
+// Checks the leading spaces of a new line against the open blocks.
+static void check_block_level(int spaces)
+{
+    int top_level = indent_levels[current_depth - 1];
+
+    if (spaces > top_level)
+    {
+        if (current_depth == MAX_DEPTH)
+        {
+            fprintf(stderr, "Lexical error, line %d: too many nested blocks\n", current_line);
+            exit(1);
+        }
+
+        indent_levels[current_depth] = spaces;
+        current_depth++;
+        block_start = true;
+        return;
+    }
+
+    for (; spaces < indent_levels[current_depth - 1]; current_depth--)
+    {
+        block_end_count++;
+    }
+
+    if (spaces != indent_levels[current_depth - 1])
+    {
+        fprintf(stderr, "Lexical error, line %d: invalid block level\n", current_line);
+        exit(1);
+    }
+}
+
+
+
 Token get_token(void)
 {
     int character;
@@ -272,3 +320,8 @@ Token get_token(void)
         return read_token(character);
     }
 }
+
+
+
+
+
