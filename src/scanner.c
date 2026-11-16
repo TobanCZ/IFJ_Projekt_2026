@@ -7,7 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "scanner.h"
-
+#include <ctype.h>
+#include <string.h>
 
 
 // Maximum number of levels.
@@ -39,6 +40,37 @@ static int line_start_spaces = 0;
 
 // Tab at the start of the logical line.
 static bool line_start_has_tab = false;
+
+// Longest possible keyword.
+#define MAX_WORD_LENGTH 256
+
+
+
+// Types for keywords.
+static const struct
+{
+    const char *word;
+    TokenType type;
+} keywords[] = 
+{
+    { "def", TOKEN_KW_DEF },
+    { "val", TOKEN_KW_VAL },
+    { "var", TOKEN_KW_VAR },
+    { "if", TOKEN_KW_IF },
+    { "then", TOKEN_KW_THEN },
+    { "else", TOKEN_KW_ELSE },
+    { "while", TOKEN_KW_WHILE },
+    { "do", TOKEN_KW_DO },
+    { "return", TOKEN_KW_RETURN },
+    { "import", TOKEN_KW_IMPORT },
+    { "Int", TOKEN_KW_INT },
+    { "Double", TOKEN_KW_DOUBLE },
+    { "String", TOKEN_KW_STRING },
+    { "Unit", TOKEN_KW_UNIT },
+};
+
+#define KEYWORD_COUNT (sizeof(keywords) / sizeof(keywords[0]))
+
 
 
 // Prints a lexical error to stderr and exits with code 1.
@@ -271,6 +303,106 @@ static void check_block_level(int spaces)
 
 
 
+// Checks if the character can start a word.
+static bool is_word_start(int character)
+{
+    return isalpha(character) || character == '_';
+}
+
+
+
+// Checks if the character can be inside a word.
+static bool is_word_char(int character)
+{
+    return isalnum(character) || character == '_';
+}
+
+
+
+// Allocates memory for a word, exits with code 99 if it fails.
+static char *allocate_word(void)
+{
+    char *word = malloc(MAX_WORD_LENGTH + 1);
+
+    if (word == NULL)
+    {
+        fprintf(stderr, "Internal error: out of memory\n");
+        exit(99);
+    }
+    return word;
+}
+
+
+
+// Reads the rest of a word that starts with first_character.
+static char *read_word(int first_character)
+{
+    char *word = allocate_word();
+    int length = 0;
+    int character = first_character;
+
+    for (; is_word_char(character); character = getchar())
+    {
+        if (length == MAX_WORD_LENGTH)
+        {
+            fprintf(stderr, "Lexical error, line %d: word is too long\n", current_line);
+            exit(1);
+        }
+        word[length] = (char)character;
+        length++;
+    }
+
+    ungetc(character, stdin);
+    word[length] = '\0';
+    return word;
+}
+
+
+
+// Returns the keyword or identifier.
+static TokenType keyword_type(const char *word)
+{
+    for (size_t index = 0; index < KEYWORD_COUNT; index++)
+    {
+        if (strcmp(word, keywords[index].word) == 0)
+        {
+            return keywords[index].type;
+        }
+    }
+    return TOKEN_IDENT;
+}
+
+
+
+// Makes a keyword or identifier token from a word.
+static Token word_token(int first_character)
+{
+    char *word = read_word(first_character);
+    TokenType type = keyword_type(word);
+    Token token;
+
+    line_is_empty = false;
+
+    if (strcmp(word, "_") == 0)
+    {
+        fprintf(stderr, "Lexical error, line %d: invalid name\n", current_line);
+        exit(1);
+    }
+
+    token = make_token(type, current_line);
+    if (type == TOKEN_IDENT)
+    {
+        token.value = word;
+    }
+    else
+    {
+        free(word);
+    }
+    return token;
+}
+
+
+
 Token get_token(void)
 {
     int character;
@@ -361,6 +493,12 @@ Token get_token(void)
             line_is_empty = false;
             ungetc(character, stdin);
             continue;
+        }
+
+        
+        if (is_word_start(character))
+        {
+            return word_token(character);
         }
 
         return read_token(character);
