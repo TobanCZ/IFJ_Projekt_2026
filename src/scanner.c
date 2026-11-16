@@ -34,6 +34,12 @@ static int open_paren_depth = 0;
 // Logical line has no token yet.
 static bool line_is_empty = true;
 
+// Logical line spaces count.
+static int line_start_spaces = 0;
+
+// Tab at the start of the logical line.
+static bool line_start_has_tab = false;
+
 
 // Prints a lexical error to stderr and exits with code 1.
 static Token lexical_error(int line, int c)
@@ -271,6 +277,17 @@ Token get_token(void)
 
     for (;;)
     {
+        if (block_end_count > 0)
+        {
+            block_end_count--;
+            return make_token(TOKEN_BLOCK_END, current_line);
+        }
+        if (block_start)
+        {
+            block_start = false;
+            return make_token(TOKEN_BLOCK_START, current_line);
+        }
+
         character = getchar();
 
         if (character == EOF)
@@ -280,11 +297,25 @@ Token get_token(void)
                 line_is_empty = true;
                 return make_token(TOKEN_EOL, current_line);
             }
+            if (current_depth > 1)
+            {
+                block_end_count = current_depth - 1;
+                current_depth = 1;
+                continue;
+            }
             return make_token(TOKEN_EOF, current_line);
         }
 
         if (character == ' ' || character == '\t')
         {
+            if (line_is_empty && character == ' ')
+            {
+                line_start_spaces++;
+            }
+            if (line_is_empty && character == '\t')
+            {
+                line_start_has_tab = true;
+            }
             continue;
         }
 
@@ -293,6 +324,8 @@ Token get_token(void)
             int line = current_line;
 
             current_line++;
+            line_start_spaces = 0;
+            line_start_has_tab = false;
             if (handle_new_line())
             {
                 return make_token(TOKEN_EOL, line);
@@ -317,11 +350,19 @@ Token get_token(void)
             continue;
         }
 
+        if (line_is_empty && open_paren_depth == 0)
+        {
+            if (line_start_has_tab)
+            {
+                fprintf(stderr, "Lexical error, line %d: tab at line start\n", current_line);
+                exit(1);
+            }
+            check_block_level(line_start_spaces);
+            line_is_empty = false;
+            ungetc(character, stdin);
+            continue;
+        }
+
         return read_token(character);
     }
 }
-
-
-
-
-
