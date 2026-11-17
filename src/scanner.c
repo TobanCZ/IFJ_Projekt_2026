@@ -403,6 +403,126 @@ static Token word_token(int first_character)
 
 
 
+// Adds a character to the token text or exits if the text is too long.
+static void append_char(char *token_text, int *text_length, int character_to_add)
+{
+    if (*text_length == MAX_WORD_LENGTH)
+    {
+        fprintf(stderr, "Lexical error, line %d: number is too long\n", current_line);
+        exit(1);
+    }
+    token_text[*text_length] = (char)character_to_add;
+    (*text_length)++;
+}
+
+
+
+// Reads digits and the _ character.
+static int read_digits(char *token_text, int *text_length, int current_character)
+{
+    for (; isdigit(current_character) || current_character == '_'; current_character = getchar())
+    {
+        if (current_character == '_')
+        {
+            int character_after_underscore = getchar();
+            if (!isdigit(character_after_underscore))
+            {
+                lexical_error(current_line, '_');
+            }
+            ungetc(character_after_underscore, stdin);
+            continue;
+        }
+        append_char(token_text, text_length, current_character);
+    }
+    return current_character;
+}
+
+
+
+// Reads the part after the dot.
+static int read_fraction(char *token_text, int *text_length)
+{
+    int character_after_dot;
+
+    append_char(token_text, text_length, '.');
+    character_after_dot = getchar();
+    if (!isdigit(character_after_dot))
+    {
+        lexical_error(current_line, character_after_dot);
+    }
+    return read_digits(token_text, text_length, character_after_dot);
+}
+
+
+
+// Reads the exponent.
+static int read_exponent(char *token_text, int *text_length, int current_character)
+{
+    append_char(token_text, text_length, current_character);
+    current_character = getchar();
+    if (current_character == '+' || current_character == '-')
+    {
+        append_char(token_text, text_length, current_character);
+        current_character = getchar();
+    }
+    if (!isdigit(current_character))
+    {
+        lexical_error(current_line, current_character);
+    }
+    return read_digits(token_text, text_length, current_character);
+}
+
+
+
+// Makes the number token from the text and the type.
+static Token finish_number_token(char *token_text, int text_length, TokenType token_type, int character_after_number)
+{
+    Token new_token;
+
+    token_text[text_length] = '\0';
+    ungetc(character_after_number, stdin);
+    line_is_empty = false;
+    new_token = make_token(token_type, current_line);
+    new_token.value = token_text;
+    return new_token;
+}
+
+
+
+// Reads the whole number and returns its token.
+static Token number_token(int first_character)
+{
+    char *token_text = allocate_word();
+    int text_length = 0;
+    int current_character = read_digits(token_text, &text_length, first_character);
+    TokenType token_type = TOKEN_INT;
+
+    if (current_character == '.')
+    {
+        current_character = read_fraction(token_text, &text_length);
+        token_type = TOKEN_DOUBLE;
+    }
+    if (current_character == 'e' || current_character == 'E')
+    {
+        current_character = read_exponent(token_text, &text_length, current_character);
+        token_type = TOKEN_DOUBLE;
+    }
+    if (current_character == 'd' || current_character == 'D')
+    {
+        token_type = TOKEN_DOUBLE;
+        current_character = getchar();
+    }
+
+    if (token_type == TOKEN_INT && first_character == '0' && text_length > 1)
+    {
+        lexical_error(current_line, '0');
+    }
+
+    return finish_number_token(token_text, text_length, token_type, current_character);
+}
+
+
+
 Token get_token(void)
 {
     int character;
@@ -422,6 +542,7 @@ Token get_token(void)
 
         character = getchar();
 
+
         if (character == EOF)
         {
             if (!line_is_empty)
@@ -438,6 +559,7 @@ Token get_token(void)
             return make_token(TOKEN_EOF, current_line);
         }
 
+
         if (character == ' ' || character == '\t')
         {
             if (line_is_empty && character == ' ')
@@ -450,6 +572,7 @@ Token get_token(void)
             }
             continue;
         }
+
 
         if (character == '\n')
         {
@@ -465,11 +588,13 @@ Token get_token(void)
             continue;
         }
 
+
         if (character == '/' && consume_if_next('/'))
         {
             skip_line_comment();
             continue;
         }
+
 
         if (character == '/' && consume_if_next('*'))
         {
@@ -481,6 +606,7 @@ Token get_token(void)
             }
             continue;
         }
+
 
         if (line_is_empty && open_paren_depth == 0)
         {
@@ -499,6 +625,12 @@ Token get_token(void)
         if (is_word_start(character))
         {
             return word_token(character);
+        }
+
+
+        if (isdigit(character))
+        {
+            return number_token(character);
         }
 
         return read_token(character);
