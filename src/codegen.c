@@ -10,6 +10,35 @@ void gen_header() {
 }
 
 
+char* escape_ifj_string(char *original) {
+
+    if (original == NULL || strncmp(original, "string@", 7) != 0) {
+        return original; 
+    }
+    
+    char *escaped = malloc(strlen(original) * 4 + 1);
+    
+    strcpy(escaped, "string@");
+    
+    int j = 7;
+
+    for (int i = 7; original[i] != '\0'; i++) {
+        
+        unsigned char c = (unsigned char)original[i];
+        
+        if (c <= 32 || c == 35 || c == 92) {
+            sprintf(escaped + j, "\\%03d", c);
+            j += 4;
+        } else {
+            escaped[j++] = c;
+        }
+    }
+    escaped[j] = '\0';
+    
+    free(original);
+    return escaped;
+}
+
 void generate_target_code (IRNode *ir_head){
     gen_header();
 
@@ -119,7 +148,15 @@ void free_ir_list(IRNode *head) {
     while (current != NULL){
         IRNode *next_node = current->next;
 
-
+        if (current->dest != NULL) {
+            free(current->dest);
+        }
+        if (current->operand1 != NULL) {
+            free(current->operand1);
+        }
+        if (current->operand2 != NULL) {
+            free(current->operand2);
+        }
 
         free(current);
         current = next_node;
