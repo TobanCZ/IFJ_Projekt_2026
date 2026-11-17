@@ -102,3 +102,26 @@ void generate_target_code (IRNode *ir_head){
         current=current->next;
     }
 }
+
+char* generate_unique_label() {
+    static int counter = 0; 
+    
+    char *label_name = malloc(32);
+    sprintf(label_name, "label_%d", counter);
+    
+    counter++;
+    return label_name;
+}
+
+
+void free_ir_list(IRNode *head) {
+    IRNode *current = head;
+    while (current != NULL){
+        IRNode *next_node = current->next;
+
+
+
+        free(current);
+        current = next_node;
+    }
+}
