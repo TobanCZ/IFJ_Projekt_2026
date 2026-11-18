@@ -54,7 +54,21 @@ typedef enum
     STATE_LESS,
     STATE_GREATER,
     STATE_EXCLAMATION,
-    STATE_WORD
+    STATE_WORD,
+    STATE_ZERO,
+    STATE_ZERO_UNDERSCORE,
+    STATE_ZERO_DIGITS,
+    STATE_ZERO_DIGITS_UNDERSCORE,
+    STATE_INT,
+    STATE_INT_UNDERSCORE,
+    STATE_DOT,
+    STATE_FRACTION,
+    STATE_FRACTION_UNDERSCORE,
+    STATE_EXP,
+    STATE_EXP_SIGN,
+    STATE_EXP_DIGITS,
+    STATE_EXP_UNDERSCORE,
+    STATE_NUMBER_SUFFIX
 } ScannerState;
 
 
@@ -64,7 +78,7 @@ static const struct
 {
     const char *word;
     TokenType type;
-} keywords[] = 
+} keywords[] =
 {
     { "def", TOKEN_KW_DEF },
     { "val", TOKEN_KW_VAL },
@@ -368,108 +382,245 @@ static void append_char(char *token_text, int *text_length, int character_to_add
 
 
 
-// Reads digits and the _ character.
-static int read_digits(char *token_text, int *text_length, int current_character)
+// Makes the number token from the text and its type.
+static Token make_number_token(char *number_text, int number_length, TokenType token_type)
 {
-    for (; isdigit(current_character) || current_character == '_'; current_character = getchar())
+    Token token;
+
+    number_text[number_length] = '\0';
+    token = make_token(token_type, current_line);
+    token.value = number_text;
+    return token;
+}
+
+
+
+// Ends the number, or moves to the exponent or the suffix.
+static bool number_end_step(int character, ScannerState *current_state, char *number_text, int *number_length, TokenType token_type, Token *result_token)
+{
+    if (character == 'e' || character == 'E')
     {
-        if (current_character == '_')
-        {
-            int character_after_underscore = getchar();
-            if (!isdigit(character_after_underscore))
+        append_char(number_text, number_length, character);
+        *current_state = STATE_EXP;
+        return false;
+    }
+    if (character == 'd' || character == 'D')
+    {
+        *current_state = STATE_NUMBER_SUFFIX;
+        return false;
+    }
+    ungetc(character, stdin);
+    *result_token = make_number_token(number_text, *number_length, token_type);
+    return true;
+}
+
+
+
+// Moves to the fraction on a dot or ends the integer.
+static bool integer_end_step(int character, ScannerState *current_state, char *number_text, int *number_length, Token *result_token)
+{
+    if (character == '.')
+    {
+        append_char(number_text, number_length, '.');
+        *current_state = STATE_DOT;
+        return false;
+    }
+    return number_end_step(character, current_state, number_text, number_length, TOKEN_INT, result_token);
+}
+
+
+
+// Checks that a digit follows an underscore, then adds it.
+static void add_digit_after_underscore(int character, char *number_text, int *number_length)
+{
+    if (!isdigit(character))
+    {
+        lexical_error(current_line, '_');
+    }
+    append_char(number_text, number_length, character);
+}
+
+
+
+// Reads the integer part of a number, one character at the time.
+static bool integer_state_step(int character, ScannerState *current_state, char *number_text, int *number_length, Token *result_token)
+{
+    switch (*current_state)
+    {
+        case STATE_ZERO:
+            if (character == '_')
             {
-                lexical_error(current_line, '_');
+                *current_state = STATE_ZERO_UNDERSCORE;
+                return false;
             }
-            ungetc(character_after_underscore, stdin);
-            continue;
-        }
-        append_char(token_text, text_length, current_character);
+            if (isdigit(character))
+            {
+                append_char(number_text, number_length, character);
+                *current_state = STATE_ZERO_DIGITS;
+                return false;
+            }
+            return integer_end_step(character, current_state, number_text, number_length, result_token);
+
+        case STATE_ZERO_UNDERSCORE:
+            add_digit_after_underscore(character, number_text, number_length);
+            *current_state = STATE_ZERO_DIGITS;
+            return false;
+
+        case STATE_ZERO_DIGITS:
+            if (isdigit(character))
+            {
+                append_char(number_text, number_length, character);
+                return false;
+            }
+            if (character == '_')
+            {
+                *current_state = STATE_ZERO_DIGITS_UNDERSCORE;
+                return false;
+            }
+            if (character == '.')
+            {
+                append_char(number_text, number_length, '.');
+                *current_state = STATE_DOT;
+                return false;
+            }
+            if (character == 'e' || character == 'E' || character == 'd' || character == 'D')
+            {
+                return number_end_step(character, current_state, number_text, number_length, TOKEN_DOUBLE, result_token);
+            }
+            lexical_error(current_line, '0');
+            return false;
+
+        case STATE_ZERO_DIGITS_UNDERSCORE:
+            add_digit_after_underscore(character, number_text, number_length);
+            *current_state = STATE_ZERO_DIGITS;
+            return false;
+
+        case STATE_INT:
+            if (isdigit(character))
+            {
+                append_char(number_text, number_length, character);
+                return false;
+            }
+            if (character == '_')
+            {
+                *current_state = STATE_INT_UNDERSCORE;
+                return false;
+            }
+            return integer_end_step(character, current_state, number_text, number_length, result_token);
+
+        case STATE_INT_UNDERSCORE:
+            add_digit_after_underscore(character, number_text, number_length);
+            *current_state = STATE_INT;
+            return false;
+
+        default:
+            return false;
     }
-    return current_character;
 }
 
 
 
-// Reads the part after the dot.
-static int read_fraction(char *token_text, int *text_length)
+// Reads the fraction part of a number, one character at a time.
+static bool fraction_state_step(int character, ScannerState *current_state, char *number_text, int *number_length, Token *result_token)
 {
-    int character_after_dot;
-
-    append_char(token_text, text_length, '.');
-    character_after_dot = getchar();
-    if (!isdigit(character_after_dot))
+    switch (*current_state)
     {
-        lexical_error(current_line, character_after_dot);
+        case STATE_DOT:
+            if (!isdigit(character))
+            {
+                lexical_error(current_line, character);
+            }
+            append_char(number_text, number_length, character);
+            *current_state = STATE_FRACTION;
+            return false;
+
+        case STATE_FRACTION:
+            if (isdigit(character))
+            {
+                append_char(number_text, number_length, character);
+                return false;
+            }
+            if (character == '_')
+            {
+                *current_state = STATE_FRACTION_UNDERSCORE;
+                return false;
+            }
+            return number_end_step(character, current_state, number_text, number_length, TOKEN_DOUBLE, result_token);
+
+        case STATE_FRACTION_UNDERSCORE:
+            add_digit_after_underscore(character, number_text, number_length);
+            *current_state = STATE_FRACTION;
+            return false;
+
+        default:
+            return false;
     }
-    return read_digits(token_text, text_length, character_after_dot);
 }
 
 
 
-// Reads the exponent.
-static int read_exponent(char *token_text, int *text_length, int current_character)
+// Reads the exponent part of a number, one character at a time.
+static bool exponent_state_step(int character, ScannerState *current_state, char *number_text, int *number_length, Token *result_token)
 {
-    append_char(token_text, text_length, current_character);
-    current_character = getchar();
-    if (current_character == '+' || current_character == '-')
+    switch (*current_state)
     {
-        append_char(token_text, text_length, current_character);
-        current_character = getchar();
+        case STATE_EXP:
+            if (character == '+' || character == '-')
+            {
+                append_char(number_text, number_length, character);
+                *current_state = STATE_EXP_SIGN;
+                return false;
+            }
+            if (!isdigit(character))
+            {
+                lexical_error(current_line, character);
+            }
+            append_char(number_text, number_length, character);
+            *current_state = STATE_EXP_DIGITS;
+            return false;
+
+        case STATE_EXP_SIGN:
+            if (!isdigit(character))
+            {
+                lexical_error(current_line, character);
+            }
+            append_char(number_text, number_length, character);
+            *current_state = STATE_EXP_DIGITS;
+            return false;
+
+        case STATE_EXP_DIGITS:
+            if (isdigit(character))
+            {
+                append_char(number_text, number_length, character);
+                return false;
+            }
+            if (character == '_')
+            {
+                *current_state = STATE_EXP_UNDERSCORE;
+                return false;
+            }
+            if (character == 'd' || character == 'D')
+            {
+                *current_state = STATE_NUMBER_SUFFIX;
+                return false;
+            }
+            ungetc(character, stdin);
+            *result_token = make_number_token(number_text, *number_length, TOKEN_DOUBLE);
+            return true;
+
+        case STATE_EXP_UNDERSCORE:
+            add_digit_after_underscore(character, number_text, number_length);
+            *current_state = STATE_EXP_DIGITS;
+            return false;
+
+        case STATE_NUMBER_SUFFIX:
+            ungetc(character, stdin);
+            *result_token = make_number_token(number_text, *number_length, TOKEN_DOUBLE);
+            return true;
+
+        default:
+            return false;
     }
-    if (!isdigit(current_character))
-    {
-        lexical_error(current_line, current_character);
-    }
-    return read_digits(token_text, text_length, current_character);
-}
-
-
-
-// Makes the number token from the text and the type.
-static Token finish_number_token(char *token_text, int text_length, TokenType token_type, int character_after_number)
-{
-    Token new_token;
-
-    token_text[text_length] = '\0';
-    ungetc(character_after_number, stdin);
-    line_is_empty = false;
-    new_token = make_token(token_type, current_line);
-    new_token.value = token_text;
-    return new_token;
-}
-
-
-
-// Reads the whole number and returns its token.
-static Token number_token(int first_character)
-{
-    char *token_text = allocate_word();
-    int text_length = 0;
-    int current_character = read_digits(token_text, &text_length, first_character);
-    TokenType token_type = TOKEN_INT;
-
-    if (current_character == '.')
-    {
-        current_character = read_fraction(token_text, &text_length);
-        token_type = TOKEN_DOUBLE;
-    }
-    if (current_character == 'e' || current_character == 'E')
-    {
-        current_character = read_exponent(token_text, &text_length, current_character);
-        token_type = TOKEN_DOUBLE;
-    }
-    if (current_character == 'd' || current_character == 'D')
-    {
-        token_type = TOKEN_DOUBLE;
-        current_character = getchar();
-    }
-
-    if (token_type == TOKEN_INT && first_character == '0' && text_length > 1)
-    {
-        lexical_error(current_line, '0');
-    }
-
-    return finish_number_token(token_text, text_length, token_type, current_character);
 }
 
 
@@ -552,6 +703,9 @@ Token get_token(void)
     ScannerState state = STATE_START;
     char *word = NULL;
     int word_length = 0;
+    char *number_text = NULL;
+    int number_length = 0;
+    Token token;
 
     for (;;)
     {
@@ -606,6 +760,35 @@ Token get_token(void)
                 ungetc(character, stdin);
                 word[word_length] = '\0';
                 return make_word_token(word);
+            case STATE_ZERO:
+            case STATE_ZERO_UNDERSCORE:
+            case STATE_ZERO_DIGITS:
+            case STATE_ZERO_DIGITS_UNDERSCORE:
+            case STATE_INT:
+            case STATE_INT_UNDERSCORE:
+                if (integer_state_step(character, &state, number_text, &number_length, &token))
+                {
+                    return token;
+                }
+                continue;
+            case STATE_DOT:
+            case STATE_FRACTION:
+            case STATE_FRACTION_UNDERSCORE:
+                if (fraction_state_step(character, &state, number_text, &number_length, &token))
+                {
+                    return token;
+                }
+                continue;
+            case STATE_EXP:
+            case STATE_EXP_SIGN:
+            case STATE_EXP_DIGITS:
+            case STATE_EXP_UNDERSCORE:
+            case STATE_NUMBER_SUFFIX:
+                if (exponent_state_step(character, &state, number_text, &number_length, &token))
+                {
+                    return token;
+                }
+                continue;
             case STATE_START:
             
                 break;
@@ -704,7 +887,12 @@ Token get_token(void)
 
         if (isdigit(character))
         {
-            return number_token(character);
+            number_text = allocate_word();
+            number_length = 0;
+            line_is_empty = false;
+            append_char(number_text, &number_length, character);
+            state = (character == '0') ? STATE_ZERO : STATE_INT;
+            continue;
         }
 
 
