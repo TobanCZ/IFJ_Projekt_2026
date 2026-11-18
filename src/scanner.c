@@ -41,7 +41,10 @@ static int line_start_spaces = 0;
 // Tab at the start of the logical line.
 static bool line_start_has_tab = false;
 
-// Longest possible keyword.
+// True when the next token is a divide.
+static bool divide_is_next = false;
+
+// Longest text a token can have.
 #define MAX_WORD_LENGTH 256
 
 
@@ -68,7 +71,14 @@ typedef enum
     STATE_EXP_SIGN,
     STATE_EXP_DIGITS,
     STATE_EXP_UNDERSCORE,
-    STATE_NUMBER_SUFFIX
+    STATE_NUMBER_SUFFIX,
+    STATE_STRING,
+    STATE_STRING_ESCAPE,
+    STATE_SLASH,
+    STATE_LINE_COMMENT,
+    STATE_BLOCK_COMMENT,
+    STATE_BLOCK_STAR,
+    STATE_BLOCK_SLASH
 } ScannerState;
 
 
@@ -118,23 +128,6 @@ static Token make_token(TokenType type, int line)
 
 
 
-// Takes the next character if it is expected, returns 1 if it matched, 0 if not.
-static int consume_if_next(int expected)
-{
-    int next = getchar();
-    if (next == expected)
-    {
-        return 1;
-    }
-    if (next != EOF)
-    {
-        ungetc(next, stdin);
-    }
-    return 0;
-}
-
-
-
 // Returns the token for a single character.
 static Token single_character_token(int character, int line)
 {
@@ -160,8 +153,6 @@ static Token single_character_token(int character, int line)
             return make_token(TOKEN_OPERATOR_MINUS, line);
         case '*':
             return make_token(TOKEN_OPERATOR_MULTIPLY, line);
-        case '/':
-            return make_token(TOKEN_OPERATOR_DIVIDE, line);
         default:
             return lexical_error(line, character);
     }
@@ -203,63 +194,6 @@ static bool handle_new_line(void)
 }
 
 
-// Skips a line comment.
-static void skip_line_comment(void)
-{
-    int curr_char;
-
-    for (curr_char = getchar(); curr_char != '\n' && curr_char != EOF; curr_char = getchar())
-    {
-    }
-    if (curr_char == '\n')
-    {
-        ungetc(curr_char, stdin);
-    }
-}
-
-
-
-// Skips a block comment and returns true if the comment has a new line.
-static bool skip_block_comment(void)
-{
-    int comment_depth = 1;
-    bool has_new_line = false;
-    int starting_line = current_line;
-    int curr_char;
-
-    for (;;)
-    {
-        curr_char = getchar();
-
-        if (curr_char == EOF)
-        {
-            fprintf(stderr, "Lexical error, line %d: unclosed comment\n", starting_line);
-            exit(1);
-        }
-
-        if (curr_char == '/' && consume_if_next('*'))
-        {
-            comment_depth++;
-        }
-        else if (curr_char == '*' && consume_if_next('/'))
-        {
-            comment_depth--;
-            if (comment_depth == 0)
-            {
-                break;
-            }
-        }
-        else if (curr_char == '\n')
-        {
-            current_line++;
-            has_new_line = true;
-        }
-    }
-
-    return has_new_line;
-}
-
-
 
 // Checks the leading spaces of a new line against the open blocks.
 static void check_block_level(int spaces)
@@ -290,6 +224,20 @@ static void check_block_level(int spaces)
         fprintf(stderr, "Lexical error, line %d: invalid block level\n", current_line);
         exit(1);
     }
+}
+
+
+
+// Checks the indentation of a line that has its first token.
+static void check_line_start(void)
+{
+    if (line_start_has_tab)
+    {
+        fprintf(stderr, "Lexical error, line %d: tab at line start\n", current_line);
+        exit(1);
+    }
+    check_block_level(line_start_spaces);
+    line_is_empty = false;
 }
 
 
@@ -625,11 +573,23 @@ static bool exponent_state_step(int character, ScannerState *current_state, char
 
 
 
-// Reads the character after a backslash and returns the real character.
-static int read_escape_character(void)
+// Ends the text and makes the string token.
+static Token finish_string_token(char *string_text, int string_length)
 {
-    int character_after_backslash = getchar();
+    Token new_token;
 
+    string_text[string_length] = '\0';
+    line_is_empty = false;
+    new_token = make_token(TOKEN_STRING, current_line);
+    new_token.value = string_text;
+    return new_token;
+}
+
+
+
+// Returns the real character for a backslash escape.
+static int escape_character(int character_after_backslash)
+{
     switch (character_after_backslash)
     {
         case '\\':
@@ -649,50 +609,38 @@ static int read_escape_character(void)
 
 
 
-// Reads the string up to the second quote.
-static void read_string_characters(char *string_text, int *string_length)
+// Reads one character of a string.
+static bool string_state_step(int character, ScannerState *current_state, char *string_text, int *string_length, Token *result_token)
 {
-    int current_character;
-
-    for (current_character = getchar(); current_character != '"'; current_character = getchar())
+    switch (*current_state)
     {
-        if (current_character == EOF || current_character == '\n')
-        {
-            fprintf(stderr, "Lexical error, line %d: unclosed string\n", current_line);
-            exit(1);
-        }
-        if (current_character == '\\')
-        {
-            current_character = read_escape_character();
-        }
-        append_char(string_text, string_length, current_character);
+        case STATE_STRING:
+            if (character == EOF || character == '\n')
+            {
+                fprintf(stderr, "Lexical error, line %d: unclosed string\n", current_line);
+                exit(1);
+            }
+            if (character == '"')
+            {
+                *result_token = finish_string_token(string_text, *string_length);
+                return true;
+            }
+            if (character == '\\')
+            {
+                *current_state = STATE_STRING_ESCAPE;
+                return false;
+            }
+            append_char(string_text, string_length, character);
+            return false;
+
+        case STATE_STRING_ESCAPE:
+            append_char(string_text, string_length, escape_character(character));
+            *current_state = STATE_STRING;
+            return false;
+
+        default:
+            return false;
     }
-}
-
-
-
-// Ends the text and makes the string token.
-static Token finish_string_token(char *string_text, int string_length)
-{
-    Token new_token;
-
-    string_text[string_length] = '\0';
-    line_is_empty = false;
-    new_token = make_token(TOKEN_STRING, current_line);
-    new_token.value = string_text;
-    return new_token;
-}
-
-
-
-// Reads a string and returns its token.
-static Token make_string_token(void)
-{
-    char *string_text = allocate_word();
-    int string_length = 0;
-
-    read_string_characters(string_text, &string_length);
-    return finish_string_token(string_text, string_length);
 }
 
 
@@ -706,6 +654,12 @@ Token get_token(void)
     char *number_text = NULL;
     int number_length = 0;
     Token token;
+    char *string_text = NULL;
+    int string_length = 0;
+    int comment_depth = 0;
+    int comment_start_line = 0;
+    bool comment_has_new_line = false;
+
 
     for (;;)
     {
@@ -718,6 +672,12 @@ Token get_token(void)
         {
             block_start = false;
             return make_token(TOKEN_BLOCK_START, current_line);
+        }
+
+        if (divide_is_next)
+        {
+            divide_is_next = false;
+            return make_token(TOKEN_OPERATOR_DIVIDE, current_line);
         }
 
         character = getchar();
@@ -789,6 +749,94 @@ Token get_token(void)
                     return token;
                 }
                 continue;
+            case STATE_STRING:
+            case STATE_STRING_ESCAPE:
+                if (string_state_step(character, &state, string_text, &string_length, &token))
+                {
+                    return token;
+                }
+                continue;
+            case STATE_SLASH:
+                if (character == '/')
+                {
+                    state = STATE_LINE_COMMENT;
+                    continue;
+                }
+                if (character == '*')
+                {
+                    comment_start_line = current_line;
+                    comment_depth = 1;
+                    state = STATE_BLOCK_COMMENT;
+                    continue;
+                }
+                if (line_is_empty && open_paren_depth == 0)
+                {
+                    check_line_start();
+                }
+                line_is_empty = false;
+                ungetc(character, stdin);
+                divide_is_next = true;
+                state = STATE_START;
+                continue;
+            case STATE_LINE_COMMENT:
+                if (character == '\n' || character == EOF)
+                {
+                    ungetc(character, stdin);
+                    state = STATE_START;
+                }
+                continue;
+            case STATE_BLOCK_COMMENT:
+                if (character == EOF)
+                {
+                    fprintf(stderr, "Lexical error, line %d: unclosed comment\n", comment_start_line);
+                    exit(1);
+                }
+                if (character == '/')
+                {
+                    state = STATE_BLOCK_SLASH;
+                }
+                else if (character == '*')
+                {
+                    state = STATE_BLOCK_STAR;
+                }
+                else if (character == '\n')
+                {
+                    current_line++;
+                    comment_has_new_line = true;
+                }
+                continue;
+            case STATE_BLOCK_SLASH:
+                if (character == '*')
+                {
+                    comment_depth++;
+                    state = STATE_BLOCK_COMMENT;
+                }
+                else if (character != '/')
+                {
+                    ungetc(character, stdin);
+                    state = STATE_BLOCK_COMMENT;
+                }
+                continue;
+            case STATE_BLOCK_STAR:
+                if (character == '/')
+                {
+                    comment_depth--;
+                    state = STATE_BLOCK_COMMENT;
+                    if (comment_depth == 0)
+                    {
+                        state = STATE_START;
+                        if (comment_has_new_line && handle_new_line())
+                        {
+                            return make_token(TOKEN_EOL, comment_start_line);
+                        }
+                    }
+                }
+                else if (character != '*')
+                {
+                    ungetc(character, stdin);
+                    state = STATE_BLOCK_COMMENT;
+                }
+                continue;
             case STATE_START:
             
                 break;
@@ -841,34 +889,16 @@ Token get_token(void)
         }
 
 
-        if (character == '/' && consume_if_next('/'))
+        if (character == '/')
         {
-            skip_line_comment();
-            continue;
-        }
-
-
-        if (character == '/' && consume_if_next('*'))
-        {
-            int line = current_line;
-
-            if (skip_block_comment() && handle_new_line())
-            {
-                return make_token(TOKEN_EOL, line);
-            }
+            state = STATE_SLASH;
             continue;
         }
 
 
         if (line_is_empty && open_paren_depth == 0)
         {
-            if (line_start_has_tab)
-            {
-                fprintf(stderr, "Lexical error, line %d: tab at line start\n", current_line);
-                exit(1);
-            }
-            check_block_level(line_start_spaces);
-            line_is_empty = false;
+            check_line_start();
             ungetc(character, stdin);
             continue;
         }
@@ -898,7 +928,11 @@ Token get_token(void)
 
         if (character == '"')
         {
-            return make_string_token();
+            string_text = allocate_word();
+            string_length = 0;
+            line_is_empty = false;
+            state = STATE_STRING;
+            continue;
         }
 
 
