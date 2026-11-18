@@ -53,7 +53,8 @@ typedef enum
     STATE_EQUAL,
     STATE_LESS,
     STATE_GREATER,
-    STATE_EXCLAMATION
+    STATE_EXCLAMATION,
+    STATE_WORD
 } ScannerState;
 
 
@@ -310,31 +311,6 @@ static char *allocate_word(void)
 
 
 
-// Reads the rest of a word that starts with first_character.
-static char *read_word(int first_character)
-{
-    char *word = allocate_word();
-    int length = 0;
-    int character = first_character;
-
-    for (; is_word_char(character); character = getchar())
-    {
-        if (length == MAX_WORD_LENGTH)
-        {
-            fprintf(stderr, "Lexical error, line %d: word is too long\n", current_line);
-            exit(1);
-        }
-        word[length] = (char)character;
-        length++;
-    }
-
-    ungetc(character, stdin);
-    word[length] = '\0';
-    return word;
-}
-
-
-
 // Returns the keyword or identifier.
 static TokenType keyword_type(const char *word)
 {
@@ -350,10 +326,9 @@ static TokenType keyword_type(const char *word)
 
 
 
-// Makes a keyword or identifier token from a word.
-static Token word_token(int first_character)
+// Makes a keyword or identifier token from the word.
+static Token make_word_token(char *word)
 {
-    char *word = read_word(first_character);
     TokenType type = keyword_type(word);
     Token token;
 
@@ -361,7 +336,7 @@ static Token word_token(int first_character)
 
     if (strcmp(word, "_") == 0)
     {
-        fprintf(stderr, "Lexical error, line %d: invalid name\n", current_line);
+        fprintf(stderr, "Lexical error, line %d: identifier '_' is not allowed\n", current_line);
         exit(1);
     }
 
@@ -575,6 +550,8 @@ Token get_token(void)
 {
     int character;
     ScannerState state = STATE_START;
+    char *word = NULL;
+    int word_length = 0;
 
     for (;;)
     {
@@ -620,7 +597,17 @@ Token get_token(void)
                     return make_token(TOKEN_OPERATOR_NOT_EQUAL, current_line);
                 }
                 return lexical_error(current_line, '!');
+            case STATE_WORD:
+                if (is_word_char(character))
+                {
+                    append_char(word, &word_length, character);
+                    continue;
+                }
+                ungetc(character, stdin);
+                word[word_length] = '\0';
+                return make_word_token(word);
             case STATE_START:
+            
                 break;
         }
 
@@ -706,7 +693,12 @@ Token get_token(void)
         
         if (is_word_start(character))
         {
-            return word_token(character);
+            word = allocate_word();
+            word_length = 0;
+            append_char(word, &word_length, character);
+            line_is_empty = false;
+            state = STATE_WORD;
+            continue;
         }
 
 
