@@ -1,1 +1,3 @@
 ifj26
+*.o
+run_unit_tests
