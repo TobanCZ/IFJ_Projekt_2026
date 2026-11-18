@@ -28,4 +28,3 @@ SortIncludes: true
 AlignConsecutiveMacros: true
 AlignConsecutiveAssignments: true
 AlignConsecutiveDeclarations: false
-...
