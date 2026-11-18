@@ -46,6 +46,18 @@ static bool line_start_has_tab = false;
 
 
 
+// States of the scanner.
+typedef enum
+{
+    STATE_START,
+    STATE_EQUAL,
+    STATE_LESS,
+    STATE_GREATER,
+    STATE_EXCLAMATION
+} ScannerState;
+
+
+
 // Types for keywords.
 static const struct
 {
@@ -142,49 +154,13 @@ static Token single_character_token(int character, int line)
 
 
 
-// Returns the token for an operator and potential second character.
-static Token operator_token(int character, int line)
-{
-    switch (character)
-    {
-        case '=':
-            if (consume_if_next('='))
-            {
-                return make_token(TOKEN_OPERATOR_EQUAL, line);
-            }
-            return make_token(TOKEN_OPERATOR_ASSIGN, line);
-        case '<':
-            if (consume_if_next('='))
-            {
-                return make_token(TOKEN_OPERATOR_LESS_EQUAL, line);
-            }
-            return make_token(TOKEN_OPERATOR_LESS, line);
-        case '>':
-            if (consume_if_next('='))
-            {
-                return make_token(TOKEN_OPERATOR_GREATER_EQUAL, line);
-            }
-            return make_token(TOKEN_OPERATOR_GREATER, line);
-        case '!':
-            if (consume_if_next('='))
-            {
-                return make_token(TOKEN_OPERATOR_NOT_EQUAL, line);
-            }
-            return lexical_error(line, character);
-        default:
-            return single_character_token(character, line);
-    }
-}
-
-
-
 // Makes a token from a character that is not a space or a new line.
 static Token read_token(int character)
 {
     Token new_token;
 
     line_is_empty = false;
-    new_token = operator_token(character, current_line);
+    new_token = single_character_token(character, current_line);
 
     if (new_token.type == TOKEN_PUNCTUATION_LEFT_PAREN)
     {
@@ -598,6 +574,7 @@ static Token make_string_token(void)
 Token get_token(void)
 {
     int character;
+    ScannerState state = STATE_START;
 
     for (;;)
     {
@@ -613,6 +590,39 @@ Token get_token(void)
         }
 
         character = getchar();
+
+        switch (state)
+        {
+            case STATE_EQUAL:
+                if (character == '=')
+                {
+                    return make_token(TOKEN_OPERATOR_EQUAL, current_line);
+                }
+                ungetc(character, stdin);
+                return make_token(TOKEN_OPERATOR_ASSIGN, current_line);
+            case STATE_LESS:
+                if (character == '=')
+                {
+                    return make_token(TOKEN_OPERATOR_LESS_EQUAL, current_line);
+                }
+                ungetc(character, stdin);
+                return make_token(TOKEN_OPERATOR_LESS, current_line);
+            case STATE_GREATER:
+                if (character == '=')
+                {
+                    return make_token(TOKEN_OPERATOR_GREATER_EQUAL, current_line);
+                }
+                ungetc(character, stdin);
+                return make_token(TOKEN_OPERATOR_GREATER, current_line);
+            case STATE_EXCLAMATION:
+                if (character == '=')
+                {
+                    return make_token(TOKEN_OPERATOR_NOT_EQUAL, current_line);
+                }
+                return lexical_error(current_line, '!');
+            case STATE_START:
+                break;
+        }
 
 
         if (character == EOF)
@@ -712,6 +722,23 @@ Token get_token(void)
         }
 
 
-        return read_token(character);
+        switch (character)
+        {
+            case '=':
+                state = STATE_EQUAL;
+                break;
+            case '<':
+                state = STATE_LESS;
+                break;
+            case '>':
+                state = STATE_GREATER;
+                break;
+            case '!':
+                state = STATE_EXCLAMATION;
+                break;
+            default:
+                return read_token(character);
+        }
+        line_is_empty = false;
     }
 }
