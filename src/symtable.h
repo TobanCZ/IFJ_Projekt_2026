@@ -1,7 +1,5 @@
-/*
-    Implementace překladače imperativního jazyka IFJ26.
-
-*/
+#ifndef SYMTABLE_H
+#define SYMTABLE_H
 #include <stdbool.h>
 
 typedef enum {
@@ -21,6 +19,9 @@ typedef struct Symbol {
     int paramCount;           // Počet parametrů ve výše uvedeném poli
 } Symbol;
 
+struct BSTNode;
+typedef struct BSTNode *Symtable;
+
 typedef struct SymtableNode {
     char *key;                  // Klíč (název symbolu)
     Symbol data;                // Data symbolu
@@ -28,8 +29,6 @@ typedef struct SymtableNode {
     struct SymtableNode *left;  // Levý potomek
     struct SymtableNode *right; // Pravý potomek
 } SymtableNode;
-
-typedef SymtableNode *Symtable;
 
 void symtable_init(Symtable *table); // Inicializace tabulky symbolů
 
@@ -40,3 +39,5 @@ Symbol *symtable_find(Symtable *table,
                       const char *key); // Vyhledání symbolu v tabulce symbolů podle klíče
 
 void symtable_destroy(Symtable *table); // Uvolnění paměti alokované pro tabulku symbolů a její uzly
+
+#endif
