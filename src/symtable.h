@@ -22,14 +22,6 @@ typedef struct Symbol {
 struct BSTNode;
 typedef struct BSTNode *Symtable;
 
-typedef struct SymtableNode {
-    char *key;                  // Klíč (název symbolu)
-    Symbol data;                // Data symbolu
-    int height;                 // Výška uzlu (pro AVL strom)
-    struct SymtableNode *left;  // Levý potomek
-    struct SymtableNode *right; // Pravý potomek
-} SymtableNode;
-
 void symtable_init(Symtable *table); // Inicializace tabulky symbolů
 
 bool symtable_insert(Symtable *table, const char *key,
