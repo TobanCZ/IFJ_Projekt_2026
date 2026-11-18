@@ -523,6 +523,78 @@ static Token number_token(int first_character)
 
 
 
+// Reads the character after a backslash and returns the real character.
+static int read_escape_character(void)
+{
+    int character_after_backslash = getchar();
+
+    switch (character_after_backslash)
+    {
+        case '\\':
+            return '\\';
+        case '"':
+            return '"';
+        case 'n':
+            return '\n';
+        case 'r':
+            return '\r';
+        case 't':
+            return '\t';
+    }
+    lexical_error(current_line, character_after_backslash);
+    return 0;
+}
+
+
+
+// Reads the string up to the second quote.
+static void read_string_characters(char *string_text, int *string_length)
+{
+    int current_character;
+
+    for (current_character = getchar(); current_character != '"'; current_character = getchar())
+    {
+        if (current_character == EOF || current_character == '\n')
+        {
+            fprintf(stderr, "Lexical error, line %d: unclosed string\n", current_line);
+            exit(1);
+        }
+        if (current_character == '\\')
+        {
+            current_character = read_escape_character();
+        }
+        append_char(string_text, string_length, current_character);
+    }
+}
+
+
+
+// Ends the text and makes the string token.
+static Token finish_string_token(char *string_text, int string_length)
+{
+    Token new_token;
+
+    string_text[string_length] = '\0';
+    line_is_empty = false;
+    new_token = make_token(TOKEN_STRING, current_line);
+    new_token.value = string_text;
+    return new_token;
+}
+
+
+
+// Reads a string and returns its token.
+static Token make_string_token(void)
+{
+    char *string_text = allocate_word();
+    int string_length = 0;
+
+    read_string_characters(string_text, &string_length);
+    return finish_string_token(string_text, string_length);
+}
+
+
+
 Token get_token(void)
 {
     int character;
@@ -632,6 +704,13 @@ Token get_token(void)
         {
             return number_token(character);
         }
+
+
+        if (character == '"')
+        {
+            return make_string_token();
+        }
+
 
         return read_token(character);
     }
