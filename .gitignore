@@ -3,3 +3,4 @@ ifj26
 obj/
 build/
 run_unit_tests
+.vscode
