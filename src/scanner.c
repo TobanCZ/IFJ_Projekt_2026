@@ -50,6 +50,9 @@ static int logical_line_spaces = 0;
 // True when the next character is the first on a line.
 static bool is_first_char_on_line = true;
 
+// True when only spaces or a line end next.
+static bool line_end_required = false;
+
 // True when the next token is a divide.
 static bool divide_is_next = false;
 
@@ -380,6 +383,10 @@ static bool number_end_step(int character, ScannerState *current_state, char *nu
     }
     if (character == 'd' || character == 'D')
     {
+        if (token_type == TOKEN_INT)
+        {
+            lexical_error(current_line, character);
+        }
         *current_state = STATE_NUMBER_SUFFIX;
         return false;
     }
@@ -436,6 +443,10 @@ static bool integer_state_step(int character, ScannerState *current_state, char 
             return integer_end_step(character, current_state, number_text, number_length, result_token);
 
         case STATE_ZERO_UNDERSCORE:
+            if (character == '_')
+            {
+                return false;
+            }
             add_digit_after_underscore(character, number_text, number_length);
             *current_state = STATE_ZERO_DIGITS;
             return false;
@@ -457,7 +468,7 @@ static bool integer_state_step(int character, ScannerState *current_state, char 
                 *current_state = STATE_DOT;
                 return false;
             }
-            if (character == 'e' || character == 'E' || character == 'd' || character == 'D')
+            if (character == 'e' || character == 'E')
             {
                 return number_end_step(character, current_state, number_text, number_length, TOKEN_DOUBLE, result_token);
             }
@@ -465,6 +476,10 @@ static bool integer_state_step(int character, ScannerState *current_state, char 
             return false;
 
         case STATE_ZERO_DIGITS_UNDERSCORE:
+            if (character == '_')
+            {
+                return false;
+            }
             add_digit_after_underscore(character, number_text, number_length);
             *current_state = STATE_ZERO_DIGITS;
             return false;
@@ -483,6 +498,10 @@ static bool integer_state_step(int character, ScannerState *current_state, char 
             return integer_end_step(character, current_state, number_text, number_length, result_token);
 
         case STATE_INT_UNDERSCORE:
+            if (character == '_')
+            {
+                return false;
+            }
             add_digit_after_underscore(character, number_text, number_length);
             *current_state = STATE_INT;
             return false;
@@ -522,6 +541,10 @@ static bool fraction_state_step(int character, ScannerState *current_state, char
             return number_end_step(character, current_state, number_text, number_length, TOKEN_DOUBLE, result_token);
 
         case STATE_FRACTION_UNDERSCORE:
+            if (character == '_')
+            {
+                return false;
+            }
             add_digit_after_underscore(character, number_text, number_length);
             *current_state = STATE_FRACTION;
             return false;
@@ -583,6 +606,10 @@ static bool exponent_state_step(int character, ScannerState *current_state, char
             return true;
 
         case STATE_EXP_UNDERSCORE:
+            if (character == '_')
+            {
+                return false;
+            }
             add_digit_after_underscore(character, number_text, number_length);
             *current_state = STATE_EXP_DIGITS;
             return false;
@@ -941,10 +968,12 @@ Token get_token(void)
                 if (character == '/')
                 {
                     comment_depth--;
+                    is_first_char_on_line = false;
                     state = STATE_BLOCK_COMMENT;
                     if (comment_depth == 0)
                     {
                         state = STATE_START;
+                        line_end_required = comment_has_new_line && open_paren_depth == 0;
                         if (comment_has_new_line && handle_new_line())
                         {
                             return make_token(TOKEN_EOL, comment_start_line);
@@ -962,6 +991,15 @@ Token get_token(void)
                 break;
         }
 
+        if (line_end_required && character != ' ' && character != '\t')
+        {
+            if (character != '\n' && character != EOF)
+            {
+                fprintf(stderr, "Lexical error, line %d: token after multi-line comment\n", current_line);
+                exit(1);
+            }
+            line_end_required = false;
+        }
 
         if (character == EOF)
         {
@@ -982,11 +1020,11 @@ Token get_token(void)
 
         if (character == ' ' || character == '\t')
         {
-            if ((line_is_empty || is_first_char_on_line) && character == ' ')
+            if (is_first_char_on_line && character == ' ')
             {
                 line_start_spaces++;
             }
-            if ((line_is_empty || is_first_char_on_line) && character == '\t')
+            if (is_first_char_on_line && character == '\t')
             {
                 line_start_has_tab = true;
             }
