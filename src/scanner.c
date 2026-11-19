@@ -74,6 +74,11 @@ typedef enum
     STATE_NUMBER_SUFFIX,
     STATE_STRING,
     STATE_STRING_ESCAPE,
+    STATE_QUOTE,
+    STATE_QUOTE2,
+    STATE_TRIPLE,
+    STATE_TRIPLE_QUOTE1,
+    STATE_TRIPLE_QUOTE2,
     STATE_SLASH,
     STATE_LINE_COMMENT,
     STATE_BLOCK_COMMENT,
@@ -645,6 +650,85 @@ static bool string_state_step(int character, ScannerState *current_state, char *
 
 
 
+// Reads the character after the first quote, or after two quotes.
+static bool read_after_opening_quote(int next_character, ScannerState *current_state, char *string_buffer, int *string_buffer_length, Token *finished_token)
+{
+    if (*current_state == STATE_QUOTE)
+    {
+        if (next_character == '"')
+        {
+            *current_state = STATE_QUOTE2;
+            return false;
+        }
+        ungetc(next_character, stdin);
+        *current_state = STATE_STRING;
+        return false;
+    }
+
+    if (next_character == '"')
+    {
+        *current_state = STATE_TRIPLE;
+        return false;
+    }
+    ungetc(next_character, stdin);
+    *finished_token = finish_string_token(string_buffer, *string_buffer_length);
+    return true;
+}
+
+
+
+// Reads one character inside a """ string.
+static bool read_inside_triple_quotes(int next_character, ScannerState *current_state, char *string_buffer, int *string_buffer_length, Token *finished_token)
+{
+    if (*current_state == STATE_TRIPLE)
+    {
+        if (next_character == EOF)
+        {
+            fprintf(stderr, "Lexical error, line %d: unclosed string\n", current_line);
+            exit(1);
+        }
+        if (next_character == '\n')
+        {
+            current_line++;
+        }
+        if (next_character == '"')
+        {
+            *current_state = STATE_TRIPLE_QUOTE1;
+        }
+        else
+        {
+            append_char(string_buffer, string_buffer_length, next_character);
+        }
+        return false;
+    }
+
+    if (*current_state == STATE_TRIPLE_QUOTE1)
+    {
+        if (next_character == '"')
+        {
+            *current_state = STATE_TRIPLE_QUOTE2;
+            return false;
+        }
+        append_char(string_buffer, string_buffer_length, '"');
+        ungetc(next_character, stdin);
+        *current_state = STATE_TRIPLE;
+        return false;
+    }
+
+    if (next_character == '"')
+    {
+        *finished_token = finish_string_token(string_buffer, *string_buffer_length);
+        return true;
+    }
+    append_char(string_buffer, string_buffer_length, '"');
+    append_char(string_buffer, string_buffer_length, '"');
+    ungetc(next_character, stdin);
+    *current_state = STATE_TRIPLE;
+    return false;
+}
+
+
+
 Token get_token(void)
 {
     int character;
@@ -752,6 +836,21 @@ Token get_token(void)
             case STATE_STRING:
             case STATE_STRING_ESCAPE:
                 if (string_state_step(character, &state, string_text, &string_length, &token))
+                {
+                    return token;
+                }
+                continue;
+            case STATE_QUOTE:
+            case STATE_QUOTE2:
+                if (read_after_opening_quote(character, &state, string_text, &string_length, &token))
+                {
+                    return token;
+                }
+                continue;
+            case STATE_TRIPLE:
+            case STATE_TRIPLE_QUOTE1:
+            case STATE_TRIPLE_QUOTE2:
+                if (read_inside_triple_quotes(character, &state, string_text, &string_length, &token))
                 {
                     return token;
                 }
@@ -931,7 +1030,7 @@ Token get_token(void)
             string_text = allocate_word();
             string_length = 0;
             line_is_empty = false;
-            state = STATE_STRING;
+            state = STATE_QUOTE;
             continue;
         }
 
