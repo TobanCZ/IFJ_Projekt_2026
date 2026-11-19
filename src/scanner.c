@@ -29,6 +29,9 @@ static bool block_start = false;
 // Line number of the character being read.
 static int current_line = 1;
 
+// Line where the current string starts.
+static int string_start_line = 1;
+
 // Number of currently open parentheses.
 static int open_paren_depth = 0;
 
@@ -40,6 +43,12 @@ static int line_start_spaces = 0;
 
 // Tab at the start of the logical line.
 static bool line_start_has_tab = false;
+
+// Spaces at the start of the line.
+static int logical_line_spaces = 0;
+
+// True when the next character is the first on a line.
+static bool is_first_char_on_line = true;
 
 // True when the next token is a divide.
 static bool divide_is_next = false;
@@ -241,10 +250,22 @@ static void check_line_start(void)
         fprintf(stderr, "Lexical error, line %d: tab at line start\n", current_line);
         exit(1);
     }
+    logical_line_spaces = line_start_spaces;
     check_block_level(line_start_spaces);
     line_is_empty = false;
 }
 
+
+
+// Checks a continuation line inside parentheses.
+static void check_line_continuation(void)
+{
+    if (line_start_has_tab || line_start_spaces <= logical_line_spaces)
+    {
+        fprintf(stderr, "Lexical error, line %d: continuation line is not indented\n", current_line);
+        exit(1);
+    }
+}
 
 
 // Checks if the character can start a word.
@@ -585,7 +606,7 @@ static Token finish_string_token(char *string_text, int string_length)
 
     string_text[string_length] = '\0';
     line_is_empty = false;
-    new_token = make_token(TOKEN_STRING, current_line);
+    new_token = make_token(TOKEN_STRING, string_start_line);
     new_token.value = string_text;
     return new_token;
 }
@@ -961,11 +982,11 @@ Token get_token(void)
 
         if (character == ' ' || character == '\t')
         {
-            if (line_is_empty && character == ' ')
+            if ((line_is_empty || is_first_char_on_line) && character == ' ')
             {
                 line_start_spaces++;
             }
-            if (line_is_empty && character == '\t')
+            if ((line_is_empty || is_first_char_on_line) && character == '\t')
             {
                 line_start_has_tab = true;
             }
@@ -980,12 +1001,20 @@ Token get_token(void)
             current_line++;
             line_start_spaces = 0;
             line_start_has_tab = false;
+            is_first_char_on_line = true;
             if (handle_new_line())
             {
                 return make_token(TOKEN_EOL, line);
             }
             continue;
         }
+
+
+        if (is_first_char_on_line && open_paren_depth > 0)
+        {
+            check_line_continuation();
+        }
+        is_first_char_on_line = false;
 
 
         if (character == '/')
@@ -1029,6 +1058,7 @@ Token get_token(void)
         {
             string_text = allocate_word();
             string_length = 0;
+            string_start_line = current_line;
             line_is_empty = false;
             state = STATE_QUOTE;
             continue;
