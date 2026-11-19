@@ -7,7 +7,6 @@
 #include "symtable.h"
 #include "scanner.h"
 
-#define FILE_ERROR 5
 
 int main(int argc, char** argv) { 
     Symtable symtable;
@@ -26,7 +25,6 @@ int main(int argc, char** argv) {
     }
 
     symtable_destroy(&symtable);
-    /* fclose(f); */
 
     return 0;
 }

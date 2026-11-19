@@ -3,8 +3,8 @@
 */
 
 
-#define SYNTAX_OK                           1
-#define SEM_OK                              1
+#define SYNTAX_OK                           0
+#define SEM_OK                              0
 #define SYNTAX_ERROR                        2
 #define SEM_ERROR_NON_DEFINE                3  //nedefinovana promenna, funkce nebo @main
 #define SEM_ERROR_REDEFINITION              4  //predefinovana promenna, funkce
