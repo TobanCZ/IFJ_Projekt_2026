@@ -1102,6 +1102,24 @@ Token get_token(void)
             continue;
         }
 
+        
+        if (character == '.')
+        {
+            int next_character = getchar();
+
+            ungetc(next_character, stdin);
+            if (isdigit(next_character))
+            {
+                number_text = allocate_word();
+                number_length = 0;
+                line_is_empty = false;
+                append_char(number_text, &number_length, '0');
+                append_char(number_text, &number_length, '.');
+                state = STATE_DOT;
+                continue;
+            }
+        }
+
 
         switch (character)
         {
