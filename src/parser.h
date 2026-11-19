@@ -2,9 +2,16 @@
     Implementace překladače imperativního jazyka IFJ26.
 */
 
-#define SYNTAX_OK     1
-#define SYNTAX_ERROR -2
-#define SEM_ERROR    -3
+#define SYNTAX_OK                           1
+#define SEM_OK                              1
+#define SYNTAX_ERROR                        2
+#define SEM_ERROR_NON_DEFINE                3  //nedefinovana promenna, funkce nebo @main
+#define SEM_ERROR_REDEFINITION              4  //predefinovana promenna, funkce
+#define SEM_ERROR_INVALID_ARGUMENT_COUNT    5  //nespravny pocet argumentu, nepovelen parametry pro @main
+#define SEM_ERROR_TYPE_MISMATCH             6  //nespravny typova kompatibilita
+#define SEM_ERROR_INVALID_WRITE             7  //nepovolen zapis do promenne, parametru
+#define SEM_ERROR_OTHER                     10 //nepovolen return
+#define INTERNAL_ERROR                      99 //nepovolen return
 
 // hlavicka pro syntakticky analyzator
 int parse();

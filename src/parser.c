@@ -4,4 +4,5 @@
 
 int parse()
 {
+    return SEM_OK;
 }
