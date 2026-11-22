@@ -56,6 +56,9 @@ static bool line_end_required = false;
 // True when the next token is a divide.
 static bool divide_is_next = false;
 
+// True when the main is the next token after @.
+static bool main_is_next = false;
+
 // Longest text a token can have.
 #define MAX_WORD_LENGTH 256
 
@@ -777,6 +780,36 @@ static bool read_inside_triple_quotes(int next_character, ScannerState *current_
 
 
 
+// Reads the annotation @main. The word main must follow the @.
+static Token read_at_sign(int line)
+{
+    const char *name = "main";
+    int character;
+    int i;
+
+    for (i = 0; name[i] != '\0'; i++)
+    {
+        character = getchar();
+        if (character != name[i])
+        {
+            lexical_error(line, '@');
+        }
+    }
+
+    character = getchar();
+    if (is_word_char(character))
+    {
+        lexical_error(line, '@');
+    }
+    ungetc(character, stdin);
+
+    line_is_empty = false;
+    main_is_next = true;
+    return make_token(TOKEN_PUNCTUATION_AT, line);
+}
+
+
+
 Token get_token(void)
 {
     int character;
@@ -810,6 +843,15 @@ Token get_token(void)
         {
             divide_is_next = false;
             return make_token(TOKEN_OPERATOR_DIVIDE, current_line);
+        }
+
+        if (main_is_next)
+        {
+            char *main_name = allocate_word();
+
+            main_is_next = false;
+            strcpy(main_name, "main");
+            return make_word_token(main_name);
         }
 
         character = getchar();
@@ -1120,6 +1162,10 @@ Token get_token(void)
             }
         }
 
+        if (character == '@')
+        {
+            return read_at_sign(current_line);
+        }
 
         switch (character)
         {
