@@ -7,64 +7,169 @@ void gen_header() {
     printf(".IFJcode26\n");
 }
 
-void generate_builtins() {
+void generate_builtins(void) {
+    printf("\n# --- VESTAVENE FUNKCE IFJ26 ---\n");
 
-    printf("LABEL $length\n");
+    // --- 1. print(value: Any): Unit ---
+    printf("\nLABEL $print\n");
+    printf("PUSHFRAME\n");
+    printf("DEFVAR LF@%%retval\n");
+    printf("MOVE LF@%%retval nil@nil\n");
+    printf("JUMPIFEQ $print_unit LF@%%0 nil@nil\n");
+    printf("WRITE LF@%%0\n");
+    printf("JUMP $print_end\n");
+    printf("LABEL $print_unit\n");
+    printf("WRITE string@()\n");
+    printf("LABEL $print_end\n");
+    printf("POPFRAME\n");
+    printf("RETURN\n");
+
+    // --- 2. readLine(): String ---
+    printf("\nLABEL $readLine\n");
+    printf("PUSHFRAME\n");
+    printf("DEFVAR LF@%%retval\n");
+    printf("READ LF@%%retval string\n");
+    printf("JUMPIFNEQ $readLine_end LF@%%retval nil@nil\n");
+    printf("MOVE LF@%%retval string@\n");
+    printf("LABEL $readLine_end\n");
+    printf("POPFRAME\n");
+    printf("RETURN\n");
+
+    // --- 3. readInt(): Int ---
+    printf("\nLABEL $readInt\n");
+    printf("PUSHFRAME\n");
+    printf("DEFVAR LF@%%retval\n");
+    printf("READ LF@%%retval int\n");
+    printf("JUMPIFNEQ $readInt_end LF@%%retval nil@nil\n");
+    printf("MOVE LF@%%retval int@0\n");
+    printf("LABEL $readInt_end\n");
+    printf("POPFRAME\n");
+    printf("RETURN\n");
+
+    // --- 4. readDouble(): Double ---
+    printf("\nLABEL $readDouble\n");
+    printf("PUSHFRAME\n");
+    printf("DEFVAR LF@%%retval\n");
+    printf("READ LF@%%retval float\n");
+    printf("JUMPIFNEQ $readDouble_end LF@%%retval nil@nil\n");
+    printf("MOVE LF@%%retval float@0x0p+0\n");
+    printf("LABEL $readDouble_end\n");
+    printf("POPFRAME\n");
+    printf("RETURN\n");
+
+    // --- 5. toStr(value: Any): String ---
+    printf("\nLABEL $toStr\n");
+    printf("PUSHFRAME\n");
+    printf("DEFVAR LF@%%retval\n");
+    printf("DEFVAR LF@type\n");
+    printf("TYPE LF@type LF@%%0\n");
+    printf("JUMPIFEQ $toStr_int LF@type string@int\n");
+    printf("JUMPIFEQ $toStr_float LF@type string@float\n");
+    printf("JUMPIFEQ $toStr_str LF@type string@string\n");
+    printf("JUMPIFEQ $toStr_bool LF@type string@bool\n");
+    // Hodnota typu Unit (nil@nil)
+    printf("MOVE LF@%%retval string@()\n");
+    printf("JUMP $toStr_end\n");
+    printf("LABEL $toStr_int\n");
+    printf("INT2STR LF@%%retval LF@%%0\n");
+    printf("JUMP $toStr_end\n");
+    printf("LABEL $toStr_float\n");
+    printf("FLOAT2STR LF@%%retval LF@%%0\n");
+    printf("JUMP $toStr_end\n");
+    printf("LABEL $toStr_str\n");
+    printf("MOVE LF@%%retval LF@%%0\n");
+    printf("JUMP $toStr_end\n");
+    printf("LABEL $toStr_bool\n");
+    printf("JUMPIFEQ $toStr_true LF@%%0 bool@true\n");
+    printf("MOVE LF@%%retval string@false\n");
+    printf("JUMP $toStr_end\n");
+    printf("LABEL $toStr_true\n");
+    printf("MOVE LF@%%retval string@true\n");
+    printf("LABEL $toStr_end\n");
+    printf("POPFRAME\n");
+    printf("RETURN\n");
+
+    // --- 6. toInt(value: Double): Int ---
+    printf("\nLABEL $toInt\n");
+    printf("PUSHFRAME\n");
+    printf("DEFVAR LF@%%retval\n");
+    printf("FLOAT2INT LF@%%retval LF@%%0\n");
+    printf("POPFRAME\n");
+    printf("RETURN\n");
+
+    // --- 7. strLength(value: String): Int ---
+    printf("\nLABEL $strLength\n");
     printf("PUSHFRAME\n");
     printf("DEFVAR LF@%%retval\n");
     printf("STRLEN LF@%%retval LF@%%0\n");
     printf("POPFRAME\n");
     printf("RETURN\n");
 
-    printf("LABEL $chr\n");
+    // --- 8. substr(value: String, start: Int, end: Int): String ---
+    printf("\nLABEL $substr\n");
     printf("PUSHFRAME\n");
     printf("DEFVAR LF@%%retval\n");
-    printf("INT2CHAR LF@%%retval LF@%%0\n");
-    printf("POPFRAME\n");
-    printf("RETURN\n");
-
-    printf("LABEL $ord\n");
-    printf("PUSHFRAME\n");
-    printf("DEFVAR LF@%%retval\n");
-    printf("STRI2INT LF@%%retval LF@%%0 LF@%%1\n");
-    printf("POPFRAME\n");
-    printf("RETURN\n");
-
-    printf("LABEL $readInt\n");
-    printf("PUSHFRAME\n");
-    printf("DEFVAR LF@%%retval\n");
-    printf("READ LF@%%retval int\n");
-    printf("POPFRAME\n");
-    printf("RETURN\n");
-
-    printf("LABEL $readDouble\n");
-    printf("PUSHFRAME\n");
-    printf("DEFVAR LF@%%retval\n");
-    printf("READ LF@%%retval float\n");
-    printf("POPFRAME\n");
-    printf("RETURN\n");
-
-    printf("LABEL $readString\n");
-    printf("PUSHFRAME\n");
-    printf("DEFVAR LF@%%retval\n");
-    printf("READ LF@%%retval string\n");
-    printf("POPFRAME\n");
-    printf("RETURN\n");
-
-    printf("LABEL $substring\n");
-    printf("PUSHFRAME\n");
-    printf("DEFVAR LF@%%retval\n");
-    printf("MOVE LF@%%retval string@\n");
-    printf("DEFVAR LF@cmp\n");
+    printf("DEFVAR LF@len\n");
+    printf("DEFVAR LF@cond\n");
     printf("DEFVAR LF@char\n");
-    printf("LABEL $substring_loop\n");
-    printf("EQ LF@cmp LF@%%1 LF@%%2\n");
-    printf("JUMPIFEQ $substring_end LF@cmp bool@true\n");
+    printf("STRLEN LF@len LF@%%0\n");
+    // Kontrola: start < 0
+    printf("LT LF@cond LF@%%1 int@0\n");
+    printf("JUMPIFEQ $substr_err LF@cond bool@true\n");
+    // Kontrola: end < 0
+    printf("LT LF@cond LF@%%2 int@0\n");
+    printf("JUMPIFEQ $substr_err LF@cond bool@true\n");
+    // Kontrola: start > end
+    printf("GT LF@cond LF@%%1 LF@%%2\n");
+    printf("JUMPIFEQ $substr_err LF@cond bool@true\n");
+    // Kontrola: start >= len (tj. !(start < len))
+    printf("LT LF@cond LF@%%1 LF@len\n");
+    printf("JUMPIFEQ $substr_err LF@cond bool@false\n");
+    // Kontrola: end > len
+    printf("GT LF@cond LF@%%2 LF@len\n");
+    printf("JUMPIFEQ $substr_err LF@cond bool@true\n");
+
+    printf("MOVE LF@%%retval string@\n");
+    printf("LABEL $substr_loop\n");
+    printf("EQ LF@cond LF@%%1 LF@%%2\n");
+    printf("JUMPIFEQ $substr_end LF@cond bool@true\n");
     printf("GETCHAR LF@char LF@%%0 LF@%%1\n");
     printf("CONCAT LF@%%retval LF@%%retval LF@char\n");
     printf("ADD LF@%%1 LF@%%1 int@1\n");
-    printf("JUMP $substring_loop\n");
-    printf("LABEL $substring_end\n");
+    printf("JUMP $substr_loop\n");
+
+    printf("LABEL $substr_err\n");
+    printf("EXIT int@40\n");
+    printf("LABEL $substr_end\n");
+    printf("POPFRAME\n");
+    printf("RETURN\n");
+
+    // --- 9. ord(value: String, index: Int): Int ---
+    printf("\nLABEL $ord\n");
+    printf("PUSHFRAME\n");
+    printf("DEFVAR LF@%%retval\n");
+    printf("DEFVAR LF@len\n");
+    printf("DEFVAR LF@cond\n");
+    printf("STRLEN LF@len LF@%%0\n");
+    // Kontrola: index < 0
+    printf("LT LF@cond LF@%%1 int@0\n");
+    printf("JUMPIFEQ $ord_err LF@cond bool@true\n");
+    // Kontrola: index >= len
+    printf("LT LF@cond LF@%%1 LF@len\n");
+    printf("JUMPIFEQ $ord_err LF@cond bool@false\n");
+    printf("STRI2INT LF@%%retval LF@%%0 LF@%%1\n");
+    printf("JUMP $ord_end\n");
+    printf("LABEL $ord_err\n");
+    printf("MOVE LF@%%retval int@-1\n");
+    printf("LABEL $ord_end\n");
+    printf("POPFRAME\n");
+    printf("RETURN\n");
+
+    // --- 10. chr(code: Int): String ---
+    printf("\nLABEL $chr\n");
+    printf("PUSHFRAME\n");
+    printf("DEFVAR LF@%%retval\n");
+    printf("INT2CHAR LF@%%retval LF@%%0\n");
     printf("POPFRAME\n");
     printf("RETURN\n");
 }
