@@ -59,8 +59,16 @@ static bool divide_is_next = false;
 // True when the main is the next token after @.
 static bool main_is_next = false;
 
-// Longest text a token can have.
-#define MAX_WORD_LENGTH 256
+// Starting size of the text of a token.
+#define INITIAL_TOKEN_TEXT_CAPACITY 16
+
+// Text of a token, its length and capacity.
+typedef struct
+{
+    char *text;
+    int length;
+    int capacity;
+} TokenText;
 
 
 
@@ -98,7 +106,13 @@ typedef enum
     STATE_LINE_COMMENT,
     STATE_BLOCK_COMMENT,
     STATE_BLOCK_STAR,
-    STATE_BLOCK_SLASH
+    STATE_BLOCK_SLASH,
+    STATE_DOT_START,
+    STATE_ANNOTATION,
+    STATE_ANNOTATION_M,
+    STATE_ANNOTATION_MA,
+    STATE_ANNOTATION_MAI,
+    STATE_ANNOTATION_MAIN
 } ScannerState;
 
 
@@ -290,17 +304,18 @@ static bool is_word_char(int character)
 
 
 
-// Allocates memory for a word, exits with code 99 if it fails.
-static char *allocate_word(void)
+// Starts an empty text for a token, exits with code 99 if it fails.
+static void allocate_word(TokenText *token_text)
 {
-    char *word = malloc(MAX_WORD_LENGTH + 1);
-
-    if (word == NULL)
+    token_text->text = malloc(INITIAL_TOKEN_TEXT_CAPACITY);
+    if (token_text->text == NULL)
     {
         fprintf(stderr, "Internal error: out of memory\n");
         exit(99);
     }
-    return word;
+    token_text->text[0] = '\0';
+    token_text->length = 0;
+    token_text->capacity = INITIAL_TOKEN_TEXT_CAPACITY;
 }
 
 
@@ -348,39 +363,49 @@ static Token make_word_token(char *word)
 
 
 
-// Adds a character to the token text or exits if the text is too long.
-static void append_char(char *token_text, int *text_length, int character_to_add)
+// Adds a character to the end of the token text, the text grows when it is full.
+static void append_char(TokenText *token_text, int character_to_add)
 {
-    if (*text_length == MAX_WORD_LENGTH)
+    char *new_text;
+    int new_capacity;
+
+    if (token_text->length + 2 > token_text->capacity)
     {
-        fprintf(stderr, "Lexical error, line %d: number is too long\n", current_line);
-        exit(1);
+        new_capacity = token_text->capacity * 2;
+        new_text = realloc(token_text->text, new_capacity);
+        if (new_text == NULL)
+        {
+            fprintf(stderr, "Internal error: out of memory\n");
+            exit(99);
+        }
+        token_text->text = new_text;
+        token_text->capacity = new_capacity;
     }
-    token_text[*text_length] = (char)character_to_add;
-    (*text_length)++;
+    token_text->text[token_text->length] = (char)character_to_add;
+    token_text->length++;
+    token_text->text[token_text->length] = '\0';
 }
 
 
 
 // Makes the number token from the text and its type.
-static Token make_number_token(char *number_text, int number_length, TokenType token_type)
+static Token make_number_token(TokenText *number, TokenType token_type)
 {
     Token token;
 
-    number_text[number_length] = '\0';
     token = make_token(token_type, current_line);
-    token.value = number_text;
+    token.value = number->text;
     return token;
 }
 
 
 
 // Ends the number, or moves to the exponent or the suffix.
-static bool number_end_step(int character, ScannerState *current_state, char *number_text, int *number_length, TokenType token_type, Token *result_token)
+static bool number_end_step(int character, ScannerState *current_state, TokenText *number, TokenType token_type, Token *result_token)
 {
     if (character == 'e' || character == 'E')
     {
-        append_char(number_text, number_length, character);
+        append_char(number, character);
         *current_state = STATE_EXP;
         return false;
     }
@@ -394,40 +419,40 @@ static bool number_end_step(int character, ScannerState *current_state, char *nu
         return false;
     }
     ungetc(character, stdin);
-    *result_token = make_number_token(number_text, *number_length, token_type);
+    *result_token = make_number_token(number, token_type);
     return true;
 }
 
 
 
 // Moves to the fraction on a dot or ends the integer.
-static bool integer_end_step(int character, ScannerState *current_state, char *number_text, int *number_length, Token *result_token)
+static bool integer_end_step(int character, ScannerState *current_state, TokenText *number, Token *result_token)
 {
     if (character == '.')
     {
-        append_char(number_text, number_length, '.');
+        append_char(number, '.');
         *current_state = STATE_DOT;
         return false;
     }
-    return number_end_step(character, current_state, number_text, number_length, TOKEN_INT, result_token);
+    return number_end_step(character, current_state, number, TOKEN_INT, result_token);
 }
 
 
 
 // Checks that a digit follows an underscore, then adds it.
-static void add_digit_after_underscore(int character, char *number_text, int *number_length)
+static void add_digit_after_underscore(int character, TokenText *number)
 {
     if (!isdigit(character))
     {
         lexical_error(current_line, '_');
     }
-    append_char(number_text, number_length, character);
+    append_char(number, character);
 }
 
 
 
 // Reads the integer part of a number, one character at the time.
-static bool integer_state_step(int character, ScannerState *current_state, char *number_text, int *number_length, Token *result_token)
+static bool integer_state_step(int character, ScannerState *current_state, TokenText *number, Token *result_token)
 {
     switch (*current_state)
     {
@@ -439,25 +464,25 @@ static bool integer_state_step(int character, ScannerState *current_state, char 
             }
             if (isdigit(character))
             {
-                append_char(number_text, number_length, character);
+                append_char(number, character);
                 *current_state = STATE_ZERO_DIGITS;
                 return false;
             }
-            return integer_end_step(character, current_state, number_text, number_length, result_token);
+            return integer_end_step(character, current_state, number, result_token);
 
         case STATE_ZERO_UNDERSCORE:
             if (character == '_')
             {
                 return false;
             }
-            add_digit_after_underscore(character, number_text, number_length);
+            add_digit_after_underscore(character, number);
             *current_state = STATE_ZERO_DIGITS;
             return false;
 
         case STATE_ZERO_DIGITS:
             if (isdigit(character))
             {
-                append_char(number_text, number_length, character);
+                append_char(number, character);
                 return false;
             }
             if (character == '_')
@@ -467,13 +492,13 @@ static bool integer_state_step(int character, ScannerState *current_state, char 
             }
             if (character == '.')
             {
-                append_char(number_text, number_length, '.');
+                append_char(number, '.');
                 *current_state = STATE_DOT;
                 return false;
             }
             if (character == 'e' || character == 'E')
             {
-                return number_end_step(character, current_state, number_text, number_length, TOKEN_DOUBLE, result_token);
+                return number_end_step(character, current_state, number, TOKEN_DOUBLE, result_token);
             }
             lexical_error(current_line, '0');
             return false;
@@ -483,14 +508,14 @@ static bool integer_state_step(int character, ScannerState *current_state, char 
             {
                 return false;
             }
-            add_digit_after_underscore(character, number_text, number_length);
+            add_digit_after_underscore(character, number);
             *current_state = STATE_ZERO_DIGITS;
             return false;
 
         case STATE_INT:
             if (isdigit(character))
             {
-                append_char(number_text, number_length, character);
+                append_char(number, character);
                 return false;
             }
             if (character == '_')
@@ -498,14 +523,14 @@ static bool integer_state_step(int character, ScannerState *current_state, char 
                 *current_state = STATE_INT_UNDERSCORE;
                 return false;
             }
-            return integer_end_step(character, current_state, number_text, number_length, result_token);
+            return integer_end_step(character, current_state, number, result_token);
 
         case STATE_INT_UNDERSCORE:
             if (character == '_')
             {
                 return false;
             }
-            add_digit_after_underscore(character, number_text, number_length);
+            add_digit_after_underscore(character, number);
             *current_state = STATE_INT;
             return false;
 
@@ -517,7 +542,7 @@ static bool integer_state_step(int character, ScannerState *current_state, char 
 
 
 // Reads the fraction part of a number, one character at a time.
-static bool fraction_state_step(int character, ScannerState *current_state, char *number_text, int *number_length, Token *result_token)
+static bool fraction_state_step(int character, ScannerState *current_state, TokenText *number, Token *result_token)
 {
     switch (*current_state)
     {
@@ -526,14 +551,14 @@ static bool fraction_state_step(int character, ScannerState *current_state, char
             {
                 lexical_error(current_line, character);
             }
-            append_char(number_text, number_length, character);
+            append_char(number, character);
             *current_state = STATE_FRACTION;
             return false;
 
         case STATE_FRACTION:
             if (isdigit(character))
             {
-                append_char(number_text, number_length, character);
+                append_char(number, character);
                 return false;
             }
             if (character == '_')
@@ -541,14 +566,14 @@ static bool fraction_state_step(int character, ScannerState *current_state, char
                 *current_state = STATE_FRACTION_UNDERSCORE;
                 return false;
             }
-            return number_end_step(character, current_state, number_text, number_length, TOKEN_DOUBLE, result_token);
+            return number_end_step(character, current_state, number, TOKEN_DOUBLE, result_token);
 
         case STATE_FRACTION_UNDERSCORE:
             if (character == '_')
             {
                 return false;
             }
-            add_digit_after_underscore(character, number_text, number_length);
+            add_digit_after_underscore(character, number);
             *current_state = STATE_FRACTION;
             return false;
 
@@ -560,14 +585,14 @@ static bool fraction_state_step(int character, ScannerState *current_state, char
 
 
 // Reads the exponent part of a number, one character at a time.
-static bool exponent_state_step(int character, ScannerState *current_state, char *number_text, int *number_length, Token *result_token)
+static bool exponent_state_step(int character, ScannerState *current_state, TokenText *number, Token *result_token)
 {
     switch (*current_state)
     {
         case STATE_EXP:
             if (character == '+' || character == '-')
             {
-                append_char(number_text, number_length, character);
+                append_char(number, character);
                 *current_state = STATE_EXP_SIGN;
                 return false;
             }
@@ -575,7 +600,7 @@ static bool exponent_state_step(int character, ScannerState *current_state, char
             {
                 lexical_error(current_line, character);
             }
-            append_char(number_text, number_length, character);
+            append_char(number, character);
             *current_state = STATE_EXP_DIGITS;
             return false;
 
@@ -584,14 +609,14 @@ static bool exponent_state_step(int character, ScannerState *current_state, char
             {
                 lexical_error(current_line, character);
             }
-            append_char(number_text, number_length, character);
+            append_char(number, character);
             *current_state = STATE_EXP_DIGITS;
             return false;
 
         case STATE_EXP_DIGITS:
             if (isdigit(character))
             {
-                append_char(number_text, number_length, character);
+                append_char(number, character);
                 return false;
             }
             if (character == '_')
@@ -605,7 +630,7 @@ static bool exponent_state_step(int character, ScannerState *current_state, char
                 return false;
             }
             ungetc(character, stdin);
-            *result_token = make_number_token(number_text, *number_length, TOKEN_DOUBLE);
+            *result_token = make_number_token(number, TOKEN_DOUBLE);
             return true;
 
         case STATE_EXP_UNDERSCORE:
@@ -613,13 +638,13 @@ static bool exponent_state_step(int character, ScannerState *current_state, char
             {
                 return false;
             }
-            add_digit_after_underscore(character, number_text, number_length);
+            add_digit_after_underscore(character, number);
             *current_state = STATE_EXP_DIGITS;
             return false;
 
         case STATE_NUMBER_SUFFIX:
             ungetc(character, stdin);
-            *result_token = make_number_token(number_text, *number_length, TOKEN_DOUBLE);
+            *result_token = make_number_token(number, TOKEN_DOUBLE);
             return true;
 
         default:
@@ -629,15 +654,14 @@ static bool exponent_state_step(int character, ScannerState *current_state, char
 
 
 
-// Ends the text and makes the string token.
-static Token finish_string_token(char *string_text, int string_length)
+// Makes the string token from the text.
+static Token finish_string_token(TokenText *string_text)
 {
     Token new_token;
 
-    string_text[string_length] = '\0';
     line_is_empty = false;
     new_token = make_token(TOKEN_STRING, string_start_line);
-    new_token.value = string_text;
+    new_token.value = string_text->text;
     return new_token;
 }
 
@@ -666,7 +690,7 @@ static int escape_character(int character_after_backslash)
 
 
 // Reads one character of a string.
-static bool string_state_step(int character, ScannerState *current_state, char *string_text, int *string_length, Token *result_token)
+static bool string_state_step(int character, ScannerState *current_state, TokenText *string_text, Token *result_token)
 {
     switch (*current_state)
     {
@@ -678,7 +702,7 @@ static bool string_state_step(int character, ScannerState *current_state, char *
             }
             if (character == '"')
             {
-                *result_token = finish_string_token(string_text, *string_length);
+                *result_token = finish_string_token(string_text);
                 return true;
             }
             if (character == '\\')
@@ -686,11 +710,11 @@ static bool string_state_step(int character, ScannerState *current_state, char *
                 *current_state = STATE_STRING_ESCAPE;
                 return false;
             }
-            append_char(string_text, string_length, character);
+            append_char(string_text, character);
             return false;
 
         case STATE_STRING_ESCAPE:
-            append_char(string_text, string_length, escape_character(character));
+            append_char(string_text, escape_character(character));
             *current_state = STATE_STRING;
             return false;
 
@@ -702,7 +726,7 @@ static bool string_state_step(int character, ScannerState *current_state, char *
 
 
 // Reads the character after the first quote, or after two quotes.
-static bool read_after_opening_quote(int next_character, ScannerState *current_state, char *string_buffer, int *string_buffer_length, Token *finished_token)
+static bool read_after_opening_quote(int next_character, ScannerState *current_state, TokenText *string_buffer, Token *finished_token)
 {
     if (*current_state == STATE_QUOTE)
     {
@@ -722,14 +746,14 @@ static bool read_after_opening_quote(int next_character, ScannerState *current_s
         return false;
     }
     ungetc(next_character, stdin);
-    *finished_token = finish_string_token(string_buffer, *string_buffer_length);
+    *finished_token = finish_string_token(string_buffer);
     return true;
 }
 
 
 
 // Reads one character inside a """ string.
-static bool read_inside_triple_quotes(int next_character, ScannerState *current_state, char *string_buffer, int *string_buffer_length, Token *finished_token)
+static bool read_inside_triple_quotes(int next_character, ScannerState *current_state, TokenText *string_buffer, Token *finished_token)
 {
     if (*current_state == STATE_TRIPLE)
     {
@@ -748,7 +772,7 @@ static bool read_inside_triple_quotes(int next_character, ScannerState *current_
         }
         else
         {
-            append_char(string_buffer, string_buffer_length, next_character);
+            append_char(string_buffer, next_character);
         }
         return false;
     }
@@ -760,7 +784,7 @@ static bool read_inside_triple_quotes(int next_character, ScannerState *current_
             *current_state = STATE_TRIPLE_QUOTE2;
             return false;
         }
-        append_char(string_buffer, string_buffer_length, '"');
+        append_char(string_buffer, '"');
         ungetc(next_character, stdin);
         *current_state = STATE_TRIPLE;
         return false;
@@ -768,11 +792,11 @@ static bool read_inside_triple_quotes(int next_character, ScannerState *current_
 
     if (next_character == '"')
     {
-        *finished_token = finish_string_token(string_buffer, *string_buffer_length);
+        *finished_token = finish_string_token(string_buffer);
         return true;
     }
-    append_char(string_buffer, string_buffer_length, '"');
-    append_char(string_buffer, string_buffer_length, '"');
+    append_char(string_buffer, '"');
+    append_char(string_buffer, '"');
     ungetc(next_character, stdin);
     *current_state = STATE_TRIPLE;
     return false;
@@ -780,47 +804,15 @@ static bool read_inside_triple_quotes(int next_character, ScannerState *current_
 
 
 
-// Reads the annotation @main. The word main must follow the @.
-static Token read_at_sign(int line)
-{
-    const char *name = "main";
-    int character;
-    int i;
-
-    for (i = 0; name[i] != '\0'; i++)
-    {
-        character = getchar();
-        if (character != name[i])
-        {
-            lexical_error(line, '@');
-        }
-    }
-
-    character = getchar();
-    if (is_word_char(character))
-    {
-        lexical_error(line, '@');
-    }
-    ungetc(character, stdin);
-
-    line_is_empty = false;
-    main_is_next = true;
-    return make_token(TOKEN_PUNCTUATION_AT, line);
-}
-
-
 
 Token get_token(void)
 {
     int character;
     ScannerState state = STATE_START;
-    char *word = NULL;
-    int word_length = 0;
-    char *number_text = NULL;
-    int number_length = 0;
+    TokenText word = { NULL, 0, 0 };
+    TokenText number = { NULL, 0, 0 };
     Token token;
-    char *string_text = NULL;
-    int string_length = 0;
+    TokenText string_text = { NULL, 0, 0 };
     int comment_depth = 0;
     int comment_start_line = 0;
     bool comment_has_new_line = false;
@@ -847,11 +839,12 @@ Token get_token(void)
 
         if (main_is_next)
         {
-            char *main_name = allocate_word();
+            TokenText main_name;
 
             main_is_next = false;
-            strcpy(main_name, "main");
-            return make_word_token(main_name);
+            allocate_word(&main_name);
+            strcpy(main_name.text, "main");
+            return make_word_token(main_name.text);
         }
 
         character = getchar();
@@ -888,19 +881,18 @@ Token get_token(void)
             case STATE_WORD:
                 if (is_word_char(character))
                 {
-                    append_char(word, &word_length, character);
+                    append_char(&word, character);
                     continue;
                 }
                 ungetc(character, stdin);
-                word[word_length] = '\0';
-                return make_word_token(word);
+                return make_word_token(word.text);
             case STATE_ZERO:
             case STATE_ZERO_UNDERSCORE:
             case STATE_ZERO_DIGITS:
             case STATE_ZERO_DIGITS_UNDERSCORE:
             case STATE_INT:
             case STATE_INT_UNDERSCORE:
-                if (integer_state_step(character, &state, number_text, &number_length, &token))
+                if (integer_state_step(character, &state, &number, &token))
                 {
                     return token;
                 }
@@ -908,7 +900,7 @@ Token get_token(void)
             case STATE_DOT:
             case STATE_FRACTION:
             case STATE_FRACTION_UNDERSCORE:
-                if (fraction_state_step(character, &state, number_text, &number_length, &token))
+                if (fraction_state_step(character, &state, &number, &token))
                 {
                     return token;
                 }
@@ -918,21 +910,21 @@ Token get_token(void)
             case STATE_EXP_DIGITS:
             case STATE_EXP_UNDERSCORE:
             case STATE_NUMBER_SUFFIX:
-                if (exponent_state_step(character, &state, number_text, &number_length, &token))
+                if (exponent_state_step(character, &state, &number, &token))
                 {
                     return token;
                 }
                 continue;
             case STATE_STRING:
             case STATE_STRING_ESCAPE:
-                if (string_state_step(character, &state, string_text, &string_length, &token))
+                if (string_state_step(character, &state, &string_text, &token))
                 {
                     return token;
                 }
                 continue;
             case STATE_QUOTE:
             case STATE_QUOTE2:
-                if (read_after_opening_quote(character, &state, string_text, &string_length, &token))
+                if (read_after_opening_quote(character, &state, &string_text, &token))
                 {
                     return token;
                 }
@@ -940,7 +932,7 @@ Token get_token(void)
             case STATE_TRIPLE:
             case STATE_TRIPLE_QUOTE1:
             case STATE_TRIPLE_QUOTE2:
-                if (read_inside_triple_quotes(character, &state, string_text, &string_length, &token))
+                if (read_inside_triple_quotes(character, &state, &string_text, &token))
                 {
                     return token;
                 }
@@ -1028,6 +1020,56 @@ Token get_token(void)
                     state = STATE_BLOCK_COMMENT;
                 }
                 continue;
+            case STATE_DOT_START:
+                if (isdigit(character))
+                {
+                    allocate_word(&number);
+                    line_is_empty = false;
+                    append_char(&number, '0');
+                    append_char(&number, '.');
+                    ungetc(character, stdin);
+                    state = STATE_DOT;
+                    continue;
+                }
+                ungetc(character, stdin);
+                return read_token('.');
+            case STATE_ANNOTATION:
+                if (character != 'm')
+                {
+                    lexical_error(current_line, '@');
+                }
+                state = STATE_ANNOTATION_M;
+                continue;
+            case STATE_ANNOTATION_M:
+                if (character != 'a')
+                {
+                    lexical_error(current_line, '@');
+                }
+                state = STATE_ANNOTATION_MA;
+                continue;
+            case STATE_ANNOTATION_MA:
+                if (character != 'i')
+                {
+                    lexical_error(current_line, '@');
+                }
+                state = STATE_ANNOTATION_MAI;
+                continue;
+            case STATE_ANNOTATION_MAI:
+                if (character != 'n')
+                {
+                    lexical_error(current_line, '@');
+                }
+                state = STATE_ANNOTATION_MAIN;
+                continue;
+            case STATE_ANNOTATION_MAIN:
+                if (is_word_char(character))
+                {
+                    lexical_error(current_line, '@');
+                }
+                ungetc(character, stdin);
+                line_is_empty = false;
+                main_is_next = true;
+                return make_token(TOKEN_PUNCTUATION_AT, current_line);
             case STATE_START:
             
                 break;
@@ -1114,9 +1156,8 @@ Token get_token(void)
         
         if (is_word_start(character))
         {
-            word = allocate_word();
-            word_length = 0;
-            append_char(word, &word_length, character);
+            allocate_word(&word);
+            append_char(&word, character);
             line_is_empty = false;
             state = STATE_WORD;
             continue;
@@ -1125,10 +1166,9 @@ Token get_token(void)
 
         if (isdigit(character))
         {
-            number_text = allocate_word();
-            number_length = 0;
+            allocate_word(&number);
             line_is_empty = false;
-            append_char(number_text, &number_length, character);
+            append_char(&number, character);
             state = (character == '0') ? STATE_ZERO : STATE_INT;
             continue;
         }
@@ -1136,8 +1176,7 @@ Token get_token(void)
 
         if (character == '"')
         {
-            string_text = allocate_word();
-            string_length = 0;
+            allocate_word(&string_text);
             string_start_line = current_line;
             line_is_empty = false;
             state = STATE_QUOTE;
@@ -1147,25 +1186,17 @@ Token get_token(void)
         
         if (character == '.')
         {
-            int next_character = getchar();
-
-            ungetc(next_character, stdin);
-            if (isdigit(next_character))
-            {
-                number_text = allocate_word();
-                number_length = 0;
-                line_is_empty = false;
-                append_char(number_text, &number_length, '0');
-                append_char(number_text, &number_length, '.');
-                state = STATE_DOT;
-                continue;
-            }
+            state = STATE_DOT_START;
+            continue;
         }
+
 
         if (character == '@')
         {
-            return read_at_sign(current_line);
+            state = STATE_ANNOTATION;
+            continue;
         }
+
 
         switch (character)
         {
