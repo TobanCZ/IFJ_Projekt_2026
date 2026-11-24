@@ -3,8 +3,83 @@
 #include <stdlib.h>
 #include <string.h>
 
-void gen_header() {
+void gen_header(void) {
     printf(".IFJcode26\n");
+}
+
+/**
+ * Vytiskne řetězcovou konstantu ve formátu IFJcode26 (včetně prefixu string@)
+ * s escapováním znaků 000-032, 035 (#) a 092 (\).
+ */
+static void print_escaped_string(const char *str) {
+    printf("string@");
+    if (str == NULL) {
+        return;
+    }
+
+    for (size_t i = 0; str[i] != '\0'; i++) {
+        unsigned char c = (unsigned char)str[i];
+        if (c <= 32 || c == 35 || c == 92) {
+            printf("\\%03u", c);
+        } else {
+            putchar(c);
+        }
+    }
+}
+
+/**
+ * Vytiskne operand v platném formátu IFJcode26.
+ * Automaticky převádí float konstanty na hexadecimální tvar (%a)
+ * a escapuje řetězcové konstanty.
+ */
+static void print_operand(const char *op) {
+    if (op == NULL) {
+        return;
+    }
+
+    if (strncmp(op, "float@", 6) == 0) {
+        double val = strtod(op + 6, NULL);
+        printf("float@%a", val);
+        return;
+    }
+
+    if (strncmp(op, "string@", 7) == 0) {
+        print_escaped_string(op + 7);
+        return;
+    }
+
+    printf("%s", op);
+}
+
+static void emit_1(const char *instr, const char *op1) {
+    printf("%s ", instr);
+    print_operand(op1);
+    putchar('\n');
+}
+
+static void emit_2(const char *instr, const char *op1, const char *op2) {
+    printf("%s ", instr);
+    print_operand(op1);
+    putchar(' ');
+    print_operand(op2);
+    putchar('\n');
+}
+
+static void emit_3(const char *instr, const char *op1, const char *op2, const char *op3) {
+    printf("%s ", instr);
+    print_operand(op1);
+    putchar(' ');
+    print_operand(op2);
+    putchar(' ');
+    print_operand(op3);
+    putchar('\n');
+}
+
+static void print_label(const char *label) {
+    if (label == NULL) {
+        return;
+    }
+    printf("%s", label);
 }
 
 void generate_builtins(void) {
@@ -174,87 +249,70 @@ void generate_builtins(void) {
     printf("RETURN\n");
 }
 
-char *escape_ifj_string(char *original) {
-
-    if (original == NULL || strncmp(original, "string@", 7) != 0) {
-        return original;
-    }
-
-    char *escaped = malloc(strlen(original) * 4 + 1);
-
-    strcpy(escaped, "string@");
-
-    int j = 7;
-
-    for (int i = 7; original[i] != '\0'; i++) {
-
-        unsigned char c = (unsigned char)original[i];
-
-        if (c <= 32 || c == 35 || c == 92) {
-            sprintf(escaped + j, "\\%03d", c);
-            j += 4;
-        } else {
-            escaped[j++] = c;
-        }
-    }
-    escaped[j] = '\0';
-
-    free(original);
-    return escaped;
-}
-
 void generate_target_code(IRNode *ir_head) {
     gen_header();
 
     IRNode *current = ir_head;
 
     while (current != NULL) {
-        current->dest     = escape_ifj_string(current->dest);
-        current->operand1 = escape_ifj_string(current->operand1);
-        current->operand2 = escape_ifj_string(current->operand2);
-
         switch (current->opcode) {
         case OP_DEFVAR:
-            printf("DEFVAR %s\n", current->dest);
+            emit_1("DEFVAR", current->dest);
             break;
         case OP_MOVE:
-            printf("MOVE %s %s\n", current->dest, current->operand1);
+            emit_2("MOVE", current->dest, current->operand1);
             break;
         case OP_ADD:
-            printf("ADD %s %s %s\n", current->dest, current->operand1, current->operand2);
+            emit_3("ADD", current->dest, current->operand1, current->operand2);
             break;
         case OP_SUB:
-            printf("SUB %s %s %s\n", current->dest, current->operand1, current->operand2);
+            emit_3("SUB", current->dest, current->operand1, current->operand2);
             break;
         case OP_MUL:
-            printf("MUL %s %s %s\n", current->dest, current->operand1, current->operand2);
+            emit_3("MUL", current->dest, current->operand1, current->operand2);
             break;
         case OP_IDIV:
-            printf("IDIV %s %s %s\n", current->dest, current->operand1, current->operand2);
+            emit_3("IDIV", current->dest, current->operand1, current->operand2);
             break;
         case OP_EQ:
-            printf("EQ %s %s %s\n", current->dest, current->operand1, current->operand2);
+            emit_3("EQ", current->dest, current->operand1, current->operand2);
             break;
         case OP_GT:
-            printf("GT %s %s %s\n", current->dest, current->operand1, current->operand2);
+            emit_3("GT", current->dest, current->operand1, current->operand2);
             break;
         case OP_LT:
-            printf("LT %s %s %s\n", current->dest, current->operand1, current->operand2);
+            emit_3("LT", current->dest, current->operand1, current->operand2);
             break;
         case OP_WRITE:
-            printf("WRITE %s\n", current->dest);
+            emit_1("WRITE", current->dest);
             break;
         case OP_LABEL:
-            printf("LABEL %s\n", current->dest);
+            printf("LABEL ");
+            print_label(current->dest);
+            putchar('\n');
             break;
         case OP_JUMP:
-            printf("JUMP %s\n", current->dest);
+            printf("JUMP ");
+            print_label(current->dest);
+            putchar('\n');
             break;
         case OP_JUMPIFEQ:
-            printf("JUMPIFEQ %s %s %s\n", current->dest, current->operand1, current->operand2);
+            printf("JUMPIFEQ ");
+            print_label(current->dest);
+            putchar(' ');
+            print_operand(current->operand1);
+            putchar(' ');
+            print_operand(current->operand2);
+            putchar('\n');
             break;
         case OP_JUMPIFNEQ:
-            printf("JUMPIFNEQ %s %s %s\n", current->dest, current->operand1, current->operand2);
+            printf("JUMPIFNEQ ");
+            print_label(current->dest);
+            putchar(' ');
+            print_operand(current->operand1);
+            putchar(' ');
+            print_operand(current->operand2);
+            putchar('\n');
             break;
         case OP_CREATEFRAME:
             printf("CREATEFRAME\n");
@@ -269,30 +327,32 @@ void generate_target_code(IRNode *ir_head) {
             printf("RETURN\n");
             break;
         case OP_CALL:
-            printf("CALL %s\n", current->dest);
+            emit_1("CALL", current->dest);
             break;
         case OP_READ:
-            printf("READ %s %s\n", current->dest, current->operand1);
+            emit_2("READ", current->dest, current->operand1);
             break;
         case OP_TYPE:
-            printf("TYPE %s %s\n", current->dest, current->operand1);
+            emit_2("TYPE", current->dest, current->operand1);
             break;
         case OP_CONCAT:
-            printf("CONCAT %s %s %s\n", current->dest, current->operand1, current->operand2);
+            emit_3("CONCAT", current->dest, current->operand1, current->operand2);
             break;
         case OP_STRLEN:
-            printf("STRLEN %s %s\n", current->dest, current->operand1);
+            emit_2("STRLEN", current->dest, current->operand1);
             break;
         case OP_GETCHAR:
-            printf("GETCHAR %s %s %s\n", current->dest, current->operand1, current->operand2);
+            emit_3("GETCHAR", current->dest, current->operand1, current->operand2);
             break;
         case OP_SETCHAR:
-            printf("SETCHAR %s %s %s\n", current->dest, current->operand1, current->operand2);
+            emit_3("SETCHAR", current->dest, current->operand1, current->operand2);
             break;
         case OP_EXIT:
-            printf("EXIT %s\n", current->dest);
+            emit_1("EXIT", current->dest);
             break;
         default:
+            fprintf(stderr, "codegen warning: unknown or unhandled opcode (%d)\n",
+                    (int)current->opcode);
             break;
         }
         current = current->next;
@@ -300,11 +360,15 @@ void generate_target_code(IRNode *ir_head) {
     generate_builtins();
 }
 
-char *generate_unique_label() {
+char *generate_unique_label(void) {
     static int counter = 0;
 
     char *label_name = malloc(32);
-    sprintf(label_name, "label_%d", counter);
+    if (label_name == NULL) {
+        return NULL;
+    }
+
+    snprintf(label_name, 32, "label_%d", counter);
 
     counter++;
     return label_name;
