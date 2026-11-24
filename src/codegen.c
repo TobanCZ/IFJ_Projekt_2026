@@ -7,10 +7,6 @@ void gen_header(void) {
     printf(".IFJcode26\n");
 }
 
-/**
- * Vytiskne řetězcovou konstantu ve formátu IFJcode26 (včetně prefixu string@)
- * s escapováním znaků 000-032, 035 (#) a 092 (\).
- */
 static void print_escaped_string(const char *str) {
     printf("string@");
     if (str == NULL) {
@@ -27,11 +23,6 @@ static void print_escaped_string(const char *str) {
     }
 }
 
-/**
- * Vytiskne operand v platném formátu IFJcode26.
- * Automaticky převádí float konstanty na hexadecimální tvar (%a)
- * a escapuje řetězcové konstanty.
- */
 static void print_operand(const char *op) {
     if (op == NULL) {
         return;
@@ -273,6 +264,24 @@ void generate_target_code(IRNode *ir_head) {
             break;
         case OP_IDIV:
             emit_3("IDIV", current->dest, current->operand1, current->operand2);
+            break;
+        case OP_DIV:
+            emit_3("DIV", current->dest, current->operand1, current->operand2);
+            break;
+        case OP_AND:
+            emit_3("AND", current->dest, current->operand1, current->operand2);
+            break;
+        case OP_OR:
+            emit_3("OR", current->dest, current->operand1, current->operand2);
+            break;
+        case OP_NOT:
+            emit_2("NOT", current->dest, current->operand1);
+            break;
+        case OP_INT2FLOAT:
+            emit_2("INT2FLOAT", current->dest, current->operand1);
+            break;
+        case OP_FLOAT2INT:
+            emit_2("FLOAT2INT", current->dest, current->operand1);
             break;
         case OP_EQ:
             emit_3("EQ", current->dest, current->operand1, current->operand2);
