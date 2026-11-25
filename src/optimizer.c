@@ -4,45 +4,60 @@
 #include <string.h>
 
 void optimizer(IRNode *ir_head) {
-
     IRNode *current = ir_head;
 
     while (current != NULL) {
+        // 1. Celočíselná aritmetika
         if (current->opcode == OP_ADD || current->opcode == OP_SUB || current->opcode == OP_MUL ||
             current->opcode == OP_IDIV) {
 
-            int val1, val2;
-
+            long long val1, val2;
             if (current->operand1 != NULL && current->operand2 != NULL &&
-                sscanf(current->operand1, "int@%d", &val1) == 1 &&
-                sscanf(current->operand2, "int@%d", &val2) == 1) {
+                sscanf(current->operand1, "int@%lld", &val1) == 1 &&
+                sscanf(current->operand2, "int@%lld", &val2) == 1) {
 
-                int result       = 0;
+                long long result = 0;
                 int can_optimize = 1;
 
-                switch (current->opcode) {
-                case OP_ADD:
+                if (current->opcode == OP_ADD) {
                     result = val1 + val2;
-                    break;
-                case OP_SUB:
+                } else if (current->opcode == OP_SUB) {
                     result = val1 - val2;
-                    break;
-                case OP_MUL:
+                } else if (current->opcode == OP_MUL) {
                     result = val1 * val2;
-                    break;
-                case OP_IDIV:
+                } else if (current->opcode == OP_IDIV) {
                     if (val2 == 0) {
                         can_optimize = 0;
                     } else {
                         result = val1 / val2;
                     }
-                    break;
-                default:
-                    break;
                 }
+
                 if (can_optimize) {
-                    char *new_operand = malloc(32);
-                    sprintf(new_operand, "int@%d", result);
+                    char *new_operand = malloc(64);
+                    if (new_operand != NULL) {
+                        snprintf(new_operand, 64, "int@%lld", result);
+
+                        free(current->operand1);
+                        free(current->operand2);
+
+                        current->opcode   = OP_MOVE;
+                        current->operand1 = new_operand;
+                        current->operand2 = NULL;
+                    }
+                }
+            }
+        }
+        // 2. Desetinné dělení
+        else if (current->opcode == OP_DIV) {
+            double f1, f2;
+            if (current->operand1 != NULL && current->operand2 != NULL &&
+                sscanf(current->operand1, "float@%lf", &f1) == 1 &&
+                sscanf(current->operand2, "float@%lf", &f2) == 1 && f2 != 0.0) {
+
+                char *new_operand = malloc(64);
+                if (new_operand != NULL) {
+                    snprintf(new_operand, 64, "float@%a", f1 / f2);
 
                     free(current->operand1);
                     free(current->operand2);
@@ -52,61 +67,167 @@ void optimizer(IRNode *ir_head) {
                     current->operand2 = NULL;
                 }
             }
-        } else if (current->opcode == OP_LT || current->opcode == OP_GT ||
-                   current->opcode == OP_EQ) {
+        }
+        // 3. Porovnávání celých čísel
+        else if (current->opcode == OP_LT || current->opcode == OP_GT || current->opcode == OP_EQ) {
 
-            int val1, val2;
+            long long val1, val2;
             if (current->operand1 != NULL && current->operand2 != NULL &&
-                sscanf(current->operand1, "int@%d", &val1) == 1 &&
-                sscanf(current->operand2, "int@%d", &val2) == 1) {
+                sscanf(current->operand1, "int@%lld", &val1) == 1 &&
+                sscanf(current->operand2, "int@%lld", &val2) == 1) {
 
                 int result = 0;
-
-                switch (current->opcode) {
-                case OP_LT:
+                if (current->opcode == OP_LT) {
                     result = (val1 < val2);
-                    break;
-                case OP_GT:
+                } else if (current->opcode == OP_GT) {
                     result = (val1 > val2);
-                    break;
-                case OP_EQ:
+                } else if (current->opcode == OP_EQ) {
                     result = (val1 == val2);
-                    break;
-                default:
-                    break;
                 }
+
                 char *new_operand = malloc(32);
+                if (new_operand != NULL) {
+                    if (result == 1) {
+                        strcpy(new_operand, "bool@true");
+                    } else {
+                        strcpy(new_operand, "bool@false");
+                    }
 
-                if (result == 1) {
-                    strcpy(new_operand, "bool@true");
-                } else {
-                    strcpy(new_operand, "bool@false");
+                    free(current->operand1);
+                    free(current->operand2);
+
+                    current->opcode   = OP_MOVE;
+                    current->operand1 = new_operand;
+                    current->operand2 = NULL;
                 }
+            }
+        }
+        // 4. Logické operace
+        else if (current->opcode == OP_AND || current->opcode == OP_OR) {
+            if (current->operand1 != NULL && current->operand2 != NULL) {
+                int b1 = -1, b2 = -1;
 
-                free(current->operand1);
-                free(current->operand2);
+                if (strcmp(current->operand1, "bool@true") == 0)
+                    b1 = 1;
+                else if (strcmp(current->operand1, "bool@false") == 0)
+                    b1 = 0;
 
-                current->opcode   = OP_MOVE;
-                current->operand1 = new_operand;
-                current->operand2 = NULL;
+                if (strcmp(current->operand2, "bool@true") == 0)
+                    b2 = 1;
+                else if (strcmp(current->operand2, "bool@false") == 0)
+                    b2 = 0;
+
+                if (b1 != -1 && b2 != -1) {
+                    int result        = (current->opcode == OP_AND) ? (b1 && b2) : (b1 || b2);
+                    char *new_operand = malloc(32);
+                    if (new_operand != NULL) {
+                        strcpy(new_operand, result ? "bool@true" : "bool@false");
+
+                        free(current->operand1);
+                        free(current->operand2);
+
+                        current->opcode   = OP_MOVE;
+                        current->operand1 = new_operand;
+                        current->operand2 = NULL;
+                    }
+                }
+            }
+        }
+        // 5. Logická negace
+        else if (current->opcode == OP_NOT) {
+            if (current->operand1 != NULL) {
+                int is_true  = (strcmp(current->operand1, "bool@true") == 0);
+                int is_false = (strcmp(current->operand1, "bool@false") == 0);
+
+                if (is_true || is_false) {
+                    char *new_operand = malloc(32);
+                    if (new_operand != NULL) {
+                        strcpy(new_operand, is_true ? "bool@false" : "bool@true");
+
+                        free(current->operand1);
+                        free(current->operand2);
+
+                        current->opcode   = OP_MOVE;
+                        current->operand1 = new_operand;
+                        current->operand2 = NULL;
+                    }
+                }
+            }
+        }
+        // 6. Převody mezi Int a Double
+        else if (current->opcode == OP_INT2FLOAT) {
+            long long val;
+            if (current->operand1 != NULL && sscanf(current->operand1, "int@%lld", &val) == 1) {
+                char *new_operand = malloc(64);
+                if (new_operand != NULL) {
+                    snprintf(new_operand, 64, "float@%a", (double)val);
+
+                    free(current->operand1);
+                    free(current->operand2);
+
+                    current->opcode   = OP_MOVE;
+                    current->operand1 = new_operand;
+                    current->operand2 = NULL;
+                }
+            }
+        } else if (current->opcode == OP_FLOAT2INT) {
+            double val;
+            if (current->operand1 != NULL && sscanf(current->operand1, "float@%lf", &val) == 1) {
+                char *new_operand = malloc(64);
+                if (new_operand != NULL) {
+                    snprintf(new_operand, 64, "int@%lld", (long long)val);
+
+                    free(current->operand1);
+                    free(current->operand2);
+
+                    current->opcode   = OP_MOVE;
+                    current->operand1 = new_operand;
+                    current->operand2 = NULL;
+                }
+            }
+        }
+        // 7. Délka konstantního řetězce
+        else if (current->opcode == OP_STRLEN) {
+            if (current->operand1 != NULL && strncmp(current->operand1, "string@", 7) == 0) {
+                size_t length     = strlen(current->operand1 + 7);
+                char *new_operand = malloc(64);
+                if (new_operand != NULL) {
+                    snprintf(new_operand, 64, "int@%zu", length);
+
+                    free(current->operand1);
+                    free(current->operand2);
+
+                    current->opcode   = OP_MOVE;
+                    current->operand1 = new_operand;
+                    current->operand2 = NULL;
+                }
             }
         }
 
-        else if (current->opcode == OP_STRLEN) {
-            if (current->operand1 != NULL && strncmp(current->operand1, "string@", 7) == 0) {
+        current = current->next;
+    }
+}
 
-                const char *str_val = current->operand1 + 7;
+void eliminate_dead_code(IRNode *ir_head) {
+    IRNode *current = ir_head;
 
-                int length = strlen(str_val);
+    while (current != NULL) {
+        if (current->opcode == OP_JUMP || current->opcode == OP_RETURN ||
+            current->opcode == OP_EXIT) {
 
-                char *new_operand = malloc(32);
-                sprintf(new_operand, "int@%d", length);
+            IRNode *dead_node = current->next;
 
-                free(current->operand1);
+            while (dead_node != NULL && dead_node->opcode != OP_LABEL) {
+                IRNode *next_dead = dead_node->next;
 
-                current->opcode   = OP_MOVE;
-                current->operand1 = new_operand;
+                free(dead_node->dest);
+                free(dead_node->operand1);
+                free(dead_node->operand2);
+                free(dead_node);
+
+                dead_node = next_dead;
             }
+            current->next = dead_node;
         }
         current = current->next;
     }
