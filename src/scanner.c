@@ -13,9 +13,14 @@
 
 // Maximum number of levels.
 #define MAX_DEPTH 256
+#define MAX_PEEK_DEPTH 16
 
 // Stack of levels.
 static int indent_levels[MAX_DEPTH] = { 0 };
+
+// Stack of tokens for peeking
+static Token peek_stack[MAX_PEEK_DEPTH];
+static int peek_depth = 0;
 
 // Number of levels.
 static int current_depth = 1;
@@ -775,7 +780,24 @@ static bool read_inside_triple_quotes(int next_character, ScannerState *current_
     return false;
 }
 
-
+Token peek_token(void)
+{
+    if (peek_depth > 0)
+    {
+        return peek_stack[peek_depth - 1];
+    }
+    else
+    {
+        Token token = get_token();
+        if (peek_depth == MAX_PEEK_DEPTH)
+        {
+            fprintf(stderr, "Internal error: peek stack overflow\n");
+            exit(99);
+        }
+        peek_stack[peek_depth++] = token;
+        return token;
+    }
+}
 
 Token get_token(void)
 {

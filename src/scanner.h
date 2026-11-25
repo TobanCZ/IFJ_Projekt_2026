@@ -11,7 +11,7 @@
 
 // Returning the next token.
 Token get_token(void);
-
+Token peek_token(void);
 
 
 #endif
