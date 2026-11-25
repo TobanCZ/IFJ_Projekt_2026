@@ -15,6 +15,8 @@
 #define INTERNAL_ERROR                      99 //nepovolen return
 
 // hlavicka pro syntakticky analyzator
+#include "token.h"
+
 int parse();
 
 extern Token current_token;

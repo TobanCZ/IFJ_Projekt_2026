@@ -130,7 +130,24 @@ static const struct
 
 #define KEYWORD_COUNT (sizeof(keywords) / sizeof(keywords[0]))
 
-
+// Resets the scanner to its initial state.
+void scanner_reset(void) {
+    indent_levels[0] = 0;
+    current_depth = 1;
+    peek_depth = 0;
+    block_end_count = 0;
+    block_start = false;
+    current_line = 1;
+    string_start_line = 1;
+    open_paren_depth = 0;
+    line_is_empty = true;
+    line_start_spaces = 0;
+    line_start_has_tab = false;
+    logical_line_spaces = 0;
+    is_first_char_on_line = true;
+    line_end_required = false;
+    divide_is_next = false;
+}
 
 // Prints a lexical error to stderr and exits with code 1.
 static Token lexical_error(int line, int c)

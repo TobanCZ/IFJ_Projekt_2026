@@ -25,7 +25,7 @@ $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $^
 
 # Pravidlo pro kompilaci .c na .o do složky $(OBJ_DIR)
-$(OBJ_DIR)/%.o: src/%.c | $(OBJ_DIR)
+$(OBJ_DIR)/%.o: src/%.c $(wildcard src/*.h) | $(OBJ_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # Vytvoření složky pro objektové soubory
@@ -54,16 +54,15 @@ test: build
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./$(TARGET) < tests/e2e/test1.scala
 
 CXX = g++
-CXXFLAGS = -std=c++14 -Wall -g
-GTEST_LIBS = -lgtest -lgtest_main -pthread
+CXXFLAGS = -std=c++17 -Wall -g -Isrc
+GTEST_LIBS = -lgtest_main -lgtest -pthread
 
 # Najde všechny C++ testy
-TEST_SRCS = $(wildcard tests/unit/*.cpp)
+TEST_SRCS = $(wildcard test/unit/*.cpp)
 # Vyloučíme src/main.c, abychom neměli dva main() (jeden z projektu, druhý z gtest_main)
 SRC_NO_MAIN = $(filter-out src/main.c, $(SRCS))
 OBJ_NO_MAIN = $(patsubst src/%.c, $(OBJ_DIR)/%.o, $(SRC_NO_MAIN))
 
-.PHONY: unit-test clean-tests
 
 # Cíl pro překlad a spuštění unit testů
 unit-test: $(OBJ_NO_MAIN)

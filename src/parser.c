@@ -32,7 +32,7 @@ void next_token() {
     current_token = get_token();
 }
 
-int expect_token(int expected_token) {
+int expect_token(TokenType expected_token) {
     if (current_token.type != expected_token) {
         return SYNTAX_ERROR;
     }
@@ -40,7 +40,7 @@ int expect_token(int expected_token) {
     return SYNTAX_OK;
 }
 
-int expect_token_and_attr(int expected_token, char* expected_attr) {
+int expect_token_and_attr(TokenType expected_token, char* expected_attr) {
     if (current_token.type != expected_token || current_token.value == NULL || strcmp(current_token.value, expected_attr) != 0) {
         return SYNTAX_ERROR;
     }
@@ -51,10 +51,11 @@ int expect_token_and_attr(int expected_token, char* expected_attr) {
 
 int parse(Symtable *symtable)
 {
+    has_main = false;
+    scanner_reset();
+
     table = symtable;
-
-    int res =parse_program();
-
+    int res = parse_program();
     return res;
 }
 
