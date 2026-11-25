@@ -102,6 +102,7 @@ typedef enum
     STATE_TRIPLE,
     STATE_TRIPLE_QUOTE1,
     STATE_TRIPLE_QUOTE2,
+    STATE_TRIPLE_QUOTE3,
     STATE_SLASH,
     STATE_LINE_COMMENT,
     STATE_BLOCK_COMMENT,
@@ -112,7 +113,9 @@ typedef enum
     STATE_ANNOTATION_M,
     STATE_ANNOTATION_MA,
     STATE_ANNOTATION_MAI,
-    STATE_ANNOTATION_MAIN
+    STATE_ANNOTATION_MAIN,
+    STATE_ZERO_NONZERO,
+    STATE_ZERO_NONZERO_UNDERSCORE
 } ScannerState;
 
 
@@ -465,7 +468,7 @@ static bool integer_state_step(int character, ScannerState *current_state, Token
             if (isdigit(character))
             {
                 append_char(number, character);
-                *current_state = STATE_ZERO_DIGITS;
+                *current_state = (character == '0') ? STATE_ZERO_DIGITS : STATE_ZERO_NONZERO;
                 return false;
             }
             return integer_end_step(character, current_state, number, result_token);
@@ -476,13 +479,17 @@ static bool integer_state_step(int character, ScannerState *current_state, Token
                 return false;
             }
             add_digit_after_underscore(character, number);
-            *current_state = STATE_ZERO_DIGITS;
+            *current_state = (character == '0') ? STATE_ZERO_DIGITS : STATE_ZERO_NONZERO;
             return false;
 
         case STATE_ZERO_DIGITS:
             if (isdigit(character))
             {
                 append_char(number, character);
+                if (character != '0')
+                {
+                    *current_state = STATE_ZERO_NONZERO;
+                }
                 return false;
             }
             if (character == '_')
@@ -500,8 +507,7 @@ static bool integer_state_step(int character, ScannerState *current_state, Token
             {
                 return number_end_step(character, current_state, number, TOKEN_DOUBLE, result_token);
             }
-            lexical_error(current_line, '0');
-            return false;
+            return integer_end_step(character, current_state, number, result_token);
 
         case STATE_ZERO_DIGITS_UNDERSCORE:
             if (character == '_')
@@ -509,7 +515,40 @@ static bool integer_state_step(int character, ScannerState *current_state, Token
                 return false;
             }
             add_digit_after_underscore(character, number);
-            *current_state = STATE_ZERO_DIGITS;
+            *current_state = (character == '0') ? STATE_ZERO_DIGITS : STATE_ZERO_NONZERO;
+            return false;
+
+        case STATE_ZERO_NONZERO:
+            if (isdigit(character))
+            {
+                append_char(number, character);
+                return false;
+            }
+            if (character == '_')
+            {
+                *current_state = STATE_ZERO_NONZERO_UNDERSCORE;
+                return false;
+            }
+            if (character == '.')
+            {
+                append_char(number, '.');
+                *current_state = STATE_DOT;
+                return false;
+            }
+            if (character == 'e' || character == 'E')
+            {
+                return number_end_step(character, current_state, number, TOKEN_DOUBLE, result_token);
+            }
+            lexical_error(current_line, character);
+            return false;
+
+        case STATE_ZERO_NONZERO_UNDERSCORE:
+            if (character == '_')
+            {
+                return false;
+            }
+            add_digit_after_underscore(character, number);
+            *current_state = STATE_ZERO_NONZERO;
             return false;
 
         case STATE_INT:
@@ -790,16 +829,28 @@ static bool read_inside_triple_quotes(int next_character, ScannerState *current_
         return false;
     }
 
+    if (*current_state == STATE_TRIPLE_QUOTE2)
+    {
+        if (next_character == '"')
+        {
+            *current_state = STATE_TRIPLE_QUOTE3;
+            return false;
+        }
+        append_char(string_buffer, '"');
+        append_char(string_buffer, '"');
+        ungetc(next_character, stdin);
+        *current_state = STATE_TRIPLE;
+        return false;
+    }
+
     if (next_character == '"')
     {
-        *finished_token = finish_string_token(string_buffer);
-        return true;
+        append_char(string_buffer, '"');
+        return false;
     }
-    append_char(string_buffer, '"');
-    append_char(string_buffer, '"');
     ungetc(next_character, stdin);
-    *current_state = STATE_TRIPLE;
-    return false;
+    *finished_token = finish_string_token(string_buffer);
+    return true;
 }
 
 
@@ -892,6 +943,8 @@ Token get_token(void)
             case STATE_ZERO_DIGITS_UNDERSCORE:
             case STATE_INT:
             case STATE_INT_UNDERSCORE:
+            case STATE_ZERO_NONZERO:
+            case STATE_ZERO_NONZERO_UNDERSCORE:
                 if (integer_state_step(character, &state, &number, &token))
                 {
                     return token;
@@ -932,6 +985,7 @@ Token get_token(void)
             case STATE_TRIPLE:
             case STATE_TRIPLE_QUOTE1:
             case STATE_TRIPLE_QUOTE2:
+            case STATE_TRIPLE_QUOTE3:
                 if (read_inside_triple_quotes(character, &state, &string_text, &token))
                 {
                     return token;
