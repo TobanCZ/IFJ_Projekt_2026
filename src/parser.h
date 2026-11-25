@@ -16,3 +16,6 @@
 
 // hlavicka pro syntakticky analyzator
 int parse();
+
+extern Token current_token;
+void next_token(void);

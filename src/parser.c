@@ -6,6 +6,7 @@
 #include "parser.h"
 #include "symtable.h"
 #include "scanner.h"
+#include "expr.h"
 
 int parse_program();
 int parse_func_def();
@@ -24,18 +25,15 @@ int parse_while();
 int parse_expr();
 
 Symtable *table;
-int token;          // globalni promenna, ve ktere bude ulozen aktualni token
-char *attr;        // globalni promenna, ve ktere bude ulozen atribut tokenu
+Token current_token;
 bool has_main = false;
 
 void next_token() {
-    Token test = get_token();
-    token = test.type;
-    attr = test.value;
+    current_token = get_token();
 }
 
 int expect_token(int expected_token) {
-    if (token != expected_token) {
+    if (current_token.type != expected_token) {
         return SYNTAX_ERROR;
     }
     next_token();
@@ -43,7 +41,7 @@ int expect_token(int expected_token) {
 }
 
 int expect_token_and_attr(int expected_token, char* expected_attr) {
-    if (token != expected_token || attr == NULL || strcmp(attr, expected_attr) != 0) {
+    if (current_token.type != expected_token || current_token.value == NULL || strcmp(current_token.value, expected_attr) != 0) {
         return SYNTAX_ERROR;
     }
     next_token();
@@ -79,7 +77,7 @@ int parse_program(){
         return SYNTAX_ERROR;
 
     //Do konce souboru
-    while(token != TOKEN_EOF)
+    while(current_token.type != TOKEN_EOF)
     {
         int res = parse_func_def();
         if (res != SYNTAX_OK)
@@ -96,7 +94,7 @@ int parse_program(){
 int parse_func_def(){
     //Kontrola main funkce
     bool is_main = false;
-    if (token == TOKEN_PUNCTUATION_AT) {
+    if (current_token.type == TOKEN_PUNCTUATION_AT) {
         next_token();
         if(expect_token_and_attr(TOKEN_IDENT, "main") != SYNTAX_OK) {
             return SYNTAX_ERROR;
@@ -107,7 +105,7 @@ int parse_func_def(){
         has_main = true;
         is_main = true;
 
-        if (token == TOKEN_EOL) {
+        if (current_token.type == TOKEN_EOL) {
             next_token();
         }
     }
@@ -127,7 +125,7 @@ int parse_func_def(){
     }
     //Parametry funkce
     if(is_main == false) {
-        while(token != TOKEN_PUNCTUATION_RIGHT_PAREN && token != TOKEN_EOF) {
+        while(current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN && current_token.type != TOKEN_EOF) {
             //Nazev parametru
             if (expect_token(TOKEN_IDENT) != SYNTAX_OK) {
                 return SYNTAX_ERROR;
@@ -137,14 +135,14 @@ int parse_func_def(){
                 return SYNTAX_ERROR;
             }
             //Typ parametru
-            if(token != TOKEN_KW_INT && token != TOKEN_KW_DOUBLE && token != TOKEN_KW_STRING && token != TOKEN_KW_UNIT) {
+            if(current_token.type != TOKEN_KW_INT && current_token.type != TOKEN_KW_DOUBLE && current_token.type != TOKEN_KW_STRING && current_token.type != TOKEN_KW_UNIT) {
                 return SYNTAX_ERROR;
             }
             next_token();
             //bud , mezi parametry a nebo musi byt zavorka
-            if(token == TOKEN_PUNCTUATION_COMMA) {
+            if(current_token.type == TOKEN_PUNCTUATION_COMMA) {
                 next_token();
-            } else if(token != TOKEN_PUNCTUATION_RIGHT_PAREN) {
+            } else if(current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN) {
                 return SYNTAX_ERROR;
             }
         }
@@ -158,13 +156,13 @@ int parse_func_def(){
 
     //Navratovy typ
     int ret_type = -1;
-    if (token == TOKEN_PUNCTUATION_COLON) {
+    if (current_token.type == TOKEN_PUNCTUATION_COLON) {
         next_token();
-        if (token != TOKEN_KW_INT && token != TOKEN_KW_DOUBLE &&
-            token != TOKEN_KW_STRING && token != TOKEN_KW_UNIT) {
+        if (current_token.type != TOKEN_KW_INT && current_token.type != TOKEN_KW_DOUBLE &&
+            current_token.type != TOKEN_KW_STRING && current_token.type != TOKEN_KW_UNIT) {
             return SYNTAX_ERROR;
         }
-        ret_type = token;
+        ret_type = current_token.type;
         next_token();
     }
     if (is_main && ret_type != TOKEN_KW_UNIT) {
@@ -176,7 +174,7 @@ int parse_func_def(){
     }
 
     //blok nebo jednoratkovej vyraz
-    if (token == TOKEN_EOL) {
+    if (current_token.type == TOKEN_EOL) {
         next_token();
         return parse_block();
     } else {
@@ -186,9 +184,9 @@ int parse_func_def(){
         }
 
         // Kontrola, zda je na konci radku nebo souboru, jinak error
-        if (token == TOKEN_EOL) {
+        if (current_token.type == TOKEN_EOL) {
             next_token();
-        } else if (token != TOKEN_EOF) {
+        } else if (current_token.type != TOKEN_EOF) {
             return SYNTAX_ERROR;
         }
         return SYNTAX_OK;
@@ -204,12 +202,12 @@ int parse_block() {
     }
 
     // Blok nesmi byt prazdny
-    if (token == TOKEN_BLOCK_END || token == TOKEN_EOF) {
+    if (current_token.type == TOKEN_BLOCK_END || current_token.type == TOKEN_EOF) {
         return SYNTAX_ERROR;
     }
 
     //Do konce bloku nebo souboru
-    while (token != TOKEN_BLOCK_END && token != TOKEN_EOF) {
+    while (current_token.type != TOKEN_BLOCK_END && current_token.type != TOKEN_EOF) {
         int res = parse_statement();
         if (res != SYNTAX_OK) {
             return res;
@@ -225,7 +223,7 @@ int parse_block() {
 }
 
 int parse_expr_or_call() {
-    if (token == TOKEN_IDENT) {
+    if (current_token.type == TOKEN_IDENT) {
         Token next = peek_token();
         if (next.type == TOKEN_PUNCTUATION_LEFT_PAREN) {
             return parse_call();
@@ -236,24 +234,24 @@ int parse_expr_or_call() {
 
 int parse_statement() {
     //Blokove prikazy
-    if (token == TOKEN_KW_IF) {
+    if (current_token.type == TOKEN_KW_IF) {
         return parse_if();
     }
-    if (token == TOKEN_KW_WHILE) {
+    if (current_token.type == TOKEN_KW_WHILE) {
         return parse_while();
     }
 
     //Jednoradkove
     int res = SYNTAX_ERROR;
 
-    if (token == TOKEN_KW_VAL || token == TOKEN_KW_VAR) {
+    if (current_token.type == TOKEN_KW_VAL || current_token.type == TOKEN_KW_VAR) {
         res = parse_def();
     } 
-    else if (token == TOKEN_KW_RETURN) {
+    else if (current_token.type == TOKEN_KW_RETURN) {
         res = parse_return();
     } 
-    else if (token == TOKEN_IDENT) {
-        // Podivame se o 1 token dopredu, aniž bychom ztratili aktualni TOKEN_IDENT
+    else if (current_token.type == TOKEN_IDENT) {
+        // prirazeni nebo funkce
         Token next = peek_token();
         if (next.type == TOKEN_OPERATOR_ASSIGN) {
             res = parse_assign();
@@ -265,7 +263,7 @@ int parse_statement() {
             res = parse_expr();
         }
     } 
-    else if (token == TOKEN_PUNCTUATION_LEFT_PAREN || token == TOKEN_OPERATOR_MINUS || token == TOKEN_INT || token == TOKEN_DOUBLE || token == TOKEN_STRING ||token == TOKEN_KW_UNIT) {
+    else if (current_token.type == TOKEN_PUNCTUATION_LEFT_PAREN || current_token.type == TOKEN_OPERATOR_MINUS || current_token.type == TOKEN_INT || current_token.type == TOKEN_DOUBLE || current_token.type == TOKEN_STRING ||current_token.type == TOKEN_KW_UNIT) {
         res = parse_expr();
     } 
     else {
@@ -277,9 +275,9 @@ int parse_statement() {
     }
 
     //Oddelovac za jednoradkovym prikazem
-    if (token == TOKEN_EOL || token == TOKEN_PUNCTUATION_SEMICOLON) {
+    if (current_token.type == TOKEN_EOL || current_token.type == TOKEN_PUNCTUATION_SEMICOLON) {
         next_token();
-    } else if (token != TOKEN_BLOCK_END && token != TOKEN_EOF) {
+    } else if (current_token.type != TOKEN_BLOCK_END && current_token.type != TOKEN_EOF) {
         return SYNTAX_ERROR;
     }
 
@@ -288,7 +286,7 @@ int parse_statement() {
 
 int parse_def() {
     //var nebo val
-    if(token != TOKEN_KW_VAL && token != TOKEN_KW_VAR) {
+    if(current_token.type != TOKEN_KW_VAL && current_token.type != TOKEN_KW_VAR) {
         return SYNTAX_ERROR;
     }
     next_token();
@@ -299,9 +297,9 @@ int parse_def() {
     }
 
     //typ
-    if(token == TOKEN_PUNCTUATION_COLON) {
+    if(current_token.type == TOKEN_PUNCTUATION_COLON) {
         next_token();
-        if(token != TOKEN_KW_INT && token != TOKEN_KW_DOUBLE && token != TOKEN_KW_STRING && token != TOKEN_KW_UNIT) {
+        if(current_token.type != TOKEN_KW_INT && current_token.type != TOKEN_KW_DOUBLE && current_token.type != TOKEN_KW_STRING && current_token.type != TOKEN_KW_UNIT) {
             return SYNTAX_ERROR;
         }
         next_token();
@@ -345,27 +343,27 @@ int parse_call() {
     }
 
     //parametry
-    while (token != TOKEN_PUNCTUATION_RIGHT_PAREN && token != TOKEN_EOF) {
+    while (current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN && current_token.type != TOKEN_EOF) {
         //vyraz nebo volani
-        if (token == TOKEN_IDENT || token == TOKEN_INT || token == TOKEN_DOUBLE || token == TOKEN_STRING) {
+        if (current_token.type == TOKEN_IDENT || current_token.type == TOKEN_INT || current_token.type == TOKEN_DOUBLE || current_token.type == TOKEN_STRING) {
             next_token();
-        } else if (token == TOKEN_PUNCTUATION_LEFT_PAREN) {
+        } else if (current_token.type == TOKEN_PUNCTUATION_LEFT_PAREN) {
             next_token();
             if (expect_token(TOKEN_PUNCTUATION_RIGHT_PAREN) != SYNTAX_OK) return SYNTAX_ERROR;
         } else {
             return SYNTAX_ERROR;
         }
 
-    if (token == TOKEN_PUNCTUATION_COMMA) {
+    if (current_token.type == TOKEN_PUNCTUATION_COMMA) {
         next_token();
         //osetreni odradkovani mezi parametry
-        if (token == TOKEN_EOL) {
+        if (current_token.type == TOKEN_EOL) {
             next_token();
-            if (token != TOKEN_PUNCTUATION_RIGHT_PAREN) return SYNTAX_ERROR;
-        } else if (token == TOKEN_PUNCTUATION_RIGHT_PAREN) {
+            if (current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN) return SYNTAX_ERROR;
+        } else if (current_token.type == TOKEN_PUNCTUATION_RIGHT_PAREN) {
             return SYNTAX_ERROR;
         }
-    } else if (token != TOKEN_PUNCTUATION_RIGHT_PAREN) {
+    } else if (current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN) {
         return SYNTAX_ERROR;
     }
 }
@@ -384,8 +382,8 @@ int parse_return() {
         return SYNTAX_ERROR;
     }
 
-    if (token != TOKEN_EOL && token != TOKEN_PUNCTUATION_SEMICOLON &&
-        token != TOKEN_BLOCK_END && token != TOKEN_EOF) {
+    if (current_token.type != TOKEN_EOL && current_token.type != TOKEN_PUNCTUATION_SEMICOLON &&
+        current_token.type != TOKEN_BLOCK_END && current_token.type != TOKEN_EOF) {
         if (parse_expr_or_call() != SYNTAX_OK) {
             return SYNTAX_ERROR;
         }
@@ -450,13 +448,3 @@ int parse_while() {
 
     return parse_block();
 }
-
-int parse_expr() {
-    while (token != TOKEN_KW_THEN && token != TOKEN_KW_DO &&
-           token != TOKEN_EOL && token != TOKEN_PUNCTUATION_SEMICOLON &&
-           token != TOKEN_BLOCK_END && token != TOKEN_EOF) {
-        next_token();
-    }
-    return SYNTAX_OK;
-}
-
