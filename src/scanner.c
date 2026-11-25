@@ -801,6 +801,10 @@ Token peek_token(void)
 
 Token get_token(void)
 {
+    if (peek_depth > 0) {
+        return peek_stack[--peek_depth];
+    }
+
     int character;
     ScannerState state = STATE_START;
     char *word = NULL;
