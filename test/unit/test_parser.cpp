@@ -1,3 +1,10 @@
+/*
+    AI-GENERATED FILE: Tento celý soubor byl vygenerován pomocí nástroje Google Gemini.
+    Použitý prompt: "Vytvoř sadu unit testů v GoogleTest pro syntaktický a sémantický
+    analyzátor (parser.c) jazyka IFJ26 pokrývající hlavičky funkcí, bloky, příkazy,
+    výrazy, sémantické chyby a okrajové případy a různých dalších edge cases."
+*/
+
 #include <gtest/gtest.h>
 #include <cstdio>
 

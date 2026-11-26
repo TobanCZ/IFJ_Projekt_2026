@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
 E2E test runner pro překladač ifj26 a interpret ic26int.
+
+AI-GENERATED FILE: Tento celý soubor byl vygenerován pomocí nástroje Google Gemini.
+Použité prompty:
+    "Vytvoř e2e testy pro jazyka IFJ26 celou specifikaci a různých dalších edge cases."
 """
 
 import argparse
