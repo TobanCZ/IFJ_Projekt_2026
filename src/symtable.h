@@ -8,14 +8,14 @@
 #include <stdbool.h>
 
 typedef enum {
-    TYPE_INT,    // integer type
-    TYPE_DOUBLE, // double type
-    TYPE_STRING, // string type
-    TYPE_BOOL,   // boolean type
-    TYPE_UNIT,   // unit type (void)
-    TYPE_ANY,    // any type
+    TYPE_INT,     // integer type
+    TYPE_DOUBLE,  // double type
+    TYPE_STRING,  // string type
+    TYPE_BOOL,    // boolean type
+    TYPE_UNIT,    // unit type (void)
+    TYPE_ANY,     // any type
     TYPE_UNKNOWN, // unknown type (used for functions returns)
-    TYPE_NEVER    //used for if elses with defined return type
+    TYPE_NEVER    // used for if elses with defined return type
 } DataType;
 
 typedef struct Symbol {

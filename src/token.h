@@ -2,16 +2,11 @@
     Implementace překladače imperativního jazyka IFJ26.
 */
 
-
-
 #ifndef TOKEN_H
 #define TOKEN_H
 
-
-
 // Types of tokens made by the scanner.
-typedef enum 
-{
+typedef enum {
     // Identifiers and literals.
     TOKEN_IDENT,
     TOKEN_INT,
@@ -55,7 +50,7 @@ typedef enum
     TOKEN_PUNCTUATION_DOT,
     TOKEN_PUNCTUATION_AT,
     TOKEN_PUNCTUATION_SEMICOLON,
-    
+
     // End of line and blocks.
     TOKEN_EOL,
     TOKEN_BLOCK_START,
@@ -70,16 +65,11 @@ typedef enum
     TOKEN_EOF
 } TokenType;
 
-
-
 // Type, value, line, of token.
-typedef struct 
-{
+typedef struct {
     TokenType type;
     char *value;
     int line;
 } Token;
-
-
 
 #endif
