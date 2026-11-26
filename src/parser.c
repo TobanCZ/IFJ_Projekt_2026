@@ -40,6 +40,7 @@ Token current_token;
 bool has_main = false;
 int current_scope = 0;
 Symbol *current_function = NULL;
+char *main_func_name = NULL;
 
 //Pro moznost 2 pruchodu 
 Token* tokens = NULL;
@@ -161,6 +162,8 @@ int parse() {
         free_all_tokens();
         symtable_destroy(&table);
         symtable_stack_destroy(&stack);
+        free(main_func_name);
+        main_func_name = NULL;
         return res;
     }
 
@@ -172,6 +175,8 @@ int parse() {
         free_all_tokens();
         symtable_destroy(&table);
         symtable_stack_destroy(&stack);
+        free(main_func_name);
+        main_func_name = NULL;
         return res;
     }
 
@@ -184,6 +189,8 @@ int parse() {
         free_all_tokens();
         symtable_destroy(&table);
         symtable_stack_destroy(&stack);
+        free(main_func_name);
+        main_func_name = NULL;
         return res;
     }
 
@@ -195,6 +202,9 @@ int parse() {
     free_all_tokens();
     symtable_destroy(&table);
     symtable_stack_destroy(&stack);
+    free(main_func_name);
+    main_func_name = NULL;
+
     return res;
 }
 
@@ -351,6 +361,14 @@ int parse_program(ParsePass pass){
     if (expect_token(TOKEN_EOL) != SYNTAX_OK)
         return SYNTAX_ERROR;
 
+    if (pass == PASS_FULL && main_func_name != NULL) {
+        char main_label[128];
+        snprintf(main_label, sizeof(main_label), "$%s", main_func_name);
+        ir_add(OP_CREATEFRAME, NULL, NULL, NULL);
+        ir_add(OP_CALL, main_label, NULL, NULL);
+        ir_add(OP_EXIT, "int@0", NULL, NULL);
+    }
+
     //Do konce souboru
     while(current_token.type != TOKEN_EOF) {
         if (current_token.type == TOKEN_EOL) {
@@ -446,9 +464,21 @@ int parse_func_body(){
             return res;
     } 
     else {
-        int res = parse_expr_or_call(&ret_type, NULL);
-        if (res != SYNTAX_OK)
+        char *addr = NULL;
+        int res = parse_expr_or_call(&ret_type, &addr);
+        if (res != SYNTAX_OK){
+            free(addr);
             return res;
+        }
+        //ulozeni navratu vyrazu
+        if (on_full_pass && addr != NULL && current_function != NULL) {
+            if (current_function->symbolType == TYPE_DOUBLE && ret_type == TYPE_INT) {
+                ir_add(OP_INT2FLOAT, "LF@%retval", addr, NULL);
+            } else {
+                ir_add(OP_MOVE, "LF@%retval", addr, NULL);
+            }
+        }
+        free(addr);
 
         if (current_token.type == TOKEN_EOL) {
             next_token();
@@ -608,6 +638,11 @@ int parse_func_def(ParsePass pass) {
 
             symtable_insert(&table, function.name, function);
             res = skip_func_body();
+
+            if (is_main) {
+                free(main_func_name);
+                main_func_name = copy_str(func_name);
+            }
         }//druhy pruchod
         else if (pass == PASS_INFER) {
             if (ret_type == -1) {
@@ -620,9 +655,24 @@ int parse_func_def(ParsePass pass) {
         } 
         //treti pruchod
         else {
+            char func_label[128];
+            char func_end_label[128];
+            snprintf(func_label, sizeof(func_label), "$%s", func_name);
+            snprintf(func_end_label, sizeof(func_end_label), "$%s_end", func_name);
+
+            ir_add(OP_LABEL, func_label, NULL, NULL);
+            ir_add(OP_PUSHFRAME, NULL, NULL, NULL);
+            ir_add(OP_DEFVAR, "LF@%retval", NULL, NULL);
+            ir_add(OP_MOVE, "LF@%retval", "nil@nil", NULL);
+            ir_set_func_anchor(); // vsechny DEFVAR v tele funkce se vlozi sem!
+
             current_function = symtable_find(&table, func_name);
             res = parse_func_body();
             current_function = NULL;
+
+            ir_add(OP_LABEL, func_end_label, NULL, NULL);
+            ir_add(OP_POPFRAME, NULL, NULL, NULL);
+            ir_add(OP_RETURN, NULL, NULL, NULL);
         }
     }
     free(func_name); 
@@ -719,7 +769,7 @@ int parse_statement(DataType *out_type) {
             statement_type = TYPE_UNIT;
         } 
         else if (next.type == TOKEN_PUNCTUATION_LEFT_PAREN) {
-            res = parse_call(&statement_type);
+            res = parse_call(&statement_type, NULL);
         } 
         else {
             res = parse_expr(&statement_type, NULL);
@@ -923,6 +973,7 @@ int parse_call(DataType *out_type, char **out_addr) {
     }
     int param_count = 0;
     DataType param_types[MAX_PARAM_COUNT];
+    char *arg_addrs[MAX_PARAM_COUNT] = {0};
     bool undefined_param = false; //syntax chyby maji prednost
 
     //parametry
@@ -932,27 +983,34 @@ int parse_call(DataType *out_type, char **out_addr) {
             Symbol *arg = symtable_stack_find(&stack, current_token.value);
             if (arg == NULL) {
                 undefined_param = true;
+                arg_addrs[param_count] = NULL;
                 param_types[param_count++] = TYPE_UNKNOWN;
             } else {
+                arg_addrs[param_count] = (arg && arg->irName) ? copy_str(arg->irName) : NULL;
                 param_types[param_count++] = arg->symbolType;
             }
             next_token();
         } 
         else if (current_token.type == TOKEN_INT) {
+            arg_addrs[param_count] = ir_from_token_to_operand(current_token);
             param_types[param_count++] = TYPE_INT;
             next_token();
         } 
         else if (current_token.type == TOKEN_DOUBLE) {
+            arg_addrs[param_count] = ir_from_token_to_operand(current_token);
             param_types[param_count++] = TYPE_DOUBLE;
             next_token();
         } 
         else if (current_token.type == TOKEN_STRING) {
+            arg_addrs[param_count] = ir_from_token_to_operand(current_token);
             param_types[param_count++] = TYPE_STRING;
             next_token();
         } 
         else if (current_token.type == TOKEN_PUNCTUATION_LEFT_PAREN) {
             next_token();
-            if (expect_token(TOKEN_PUNCTUATION_RIGHT_PAREN) != SYNTAX_OK) return SYNTAX_ERROR;
+            if (expect_token(TOKEN_PUNCTUATION_RIGHT_PAREN) != SYNTAX_OK) 
+                return SYNTAX_ERROR;
+            arg_addrs[param_count] = copy_str("nil@nil");
             param_types[param_count++] = TYPE_UNIT;
         } 
         else {
@@ -1013,6 +1071,41 @@ int parse_call(DataType *out_type, char **out_addr) {
     if (out_type != NULL) {
         *out_type = function->symbolType;
     }
+
+    if (on_full_pass) {
+        ir_add(OP_CREATEFRAME, NULL, NULL, NULL);
+
+        for (int i = 0; i < param_count; i++) {
+            char tf_param[32];
+            snprintf(tf_param, sizeof(tf_param), "TF@%%%d", i);
+            ir_add(OP_DEFVAR, tf_param, NULL, NULL);
+
+            if (function->parameterTypes[i] == TYPE_DOUBLE && param_types[i] == TYPE_INT) {
+                ir_add(OP_INT2FLOAT, tf_param, arg_addrs[i], NULL);
+            } else {
+                ir_add(OP_MOVE, tf_param, arg_addrs[i], NULL);
+            }
+        }
+
+        char call_label[128];
+        // Pozor: v codegen.c mas LABEL $substr s malym 's'
+        if (strcmp(function->name, "subStr") == 0) {
+            snprintf(call_label, sizeof(call_label), "$substr");
+        } else {
+            snprintf(call_label, sizeof(call_label), "$%s", function->name);
+        }
+        ir_add(OP_CALL, call_label, NULL, NULL);
+
+        if (out_addr != NULL) {
+            char *res_tmp = ir_create_tmp();
+            ir_add(OP_MOVE, res_tmp, "TF@%retval", NULL);
+            *out_addr = res_tmp;
+        }
+    }
+
+    for (int i = 0; i < param_count; i++) {
+        free(arg_addrs[i]);
+    }
     return SYNTAX_OK;
 }
 
@@ -1022,28 +1115,33 @@ int parse_return() {
         return SYNTAX_ERROR;    
 
     DataType ret_type = TYPE_UNIT;
+    char *return_addr = NULL;
 
     if (current_token.type != TOKEN_EOL &&
         current_token.type != TOKEN_PUNCTUATION_SEMICOLON &&
         current_token.type != TOKEN_BLOCK_END &&
         current_token.type != TOKEN_EOF) {
-        int res = parse_expr_or_call(&ret_type, NULL);
+        int res = parse_expr_or_call(&ret_type, &return_addr);
         if (res != SYNTAX_OK) {
+            free(return_addr);
             return res;
         }
     }
 
     //funkce bez typu nemuze mit return
     if (current_function != NULL && current_function->symbolType == TYPE_UNKNOWN) {
+        free(return_addr);
         return SEM_ERROR_TYPE_MISMATCH;
     }
 
     //bool nejde vratit
     if (ret_type == TYPE_BOOL) {
+        free(return_addr);
         return SEM_ERROR_TYPE_MISMATCH;
     }
 
     if (ret_type == TYPE_UNIT && current_function != NULL && current_function->symbolType != TYPE_UNIT) {
+        free(return_addr);
         return SEM_ERROR_OTHER;
     }
 
@@ -1052,9 +1150,26 @@ int parse_return() {
         DataType expected = current_function->symbolType;
         bool valid = (expected == ret_type) || (expected == TYPE_DOUBLE && ret_type == TYPE_INT);
         if (!valid) {
+            free(return_addr);
             return SEM_ERROR_TYPE_MISMATCH;
         }
     }
+
+    //prirazeni navratove hodnoty a skok na konec funkce
+    if (on_full_pass && current_function != NULL) {
+        if (return_addr != NULL) {
+            if (current_function->symbolType == TYPE_DOUBLE && ret_type == TYPE_INT) {
+                ir_add(OP_INT2FLOAT, "LF@%retval", return_addr, NULL);
+            } else {
+                ir_add(OP_MOVE, "LF@%retval", return_addr, NULL);
+            }
+        }
+        char func_end_label[128];
+        snprintf(func_end_label, sizeof(func_end_label), "$%s_end", current_function->name);
+        ir_add(OP_JUMP, func_end_label, NULL, NULL);
+    }
+
+    free(return_addr);
 
     return SYNTAX_OK;
 }
@@ -1180,18 +1295,46 @@ int parse_while() {
     if(expect_token(TOKEN_KW_WHILE) != SYNTAX_OK)
         return SYNTAX_ERROR;
 
+    //vygenerovani labelu pro start
+    char *label_start = NULL;
+    char *label_end = NULL;
+    if (on_full_pass) {
+        label_start = ir_create_label("while_start");
+        label_end = ir_create_label("while_end");
+        ir_add(OP_LABEL, label_start, NULL, NULL);
+    }
+
     //vyraz
     DataType condition_type = TYPE_UNKNOWN;
-    int res = parse_expr(&condition_type, NULL);
-    if (res != SYNTAX_OK)
+    char *addr = NULL;
+    int res = parse_expr(&condition_type, &addr);
+    if (res != SYNTAX_OK){
+        free(label_start);
+        free(label_end);
+        free(addr);
         return res;
+    }
+
+    if (on_full_pass && addr != NULL) {
+        ir_add(OP_JUMPIFEQ, label_end, addr, "bool@false");
+    }
+    free(addr);
+
     //do
-    if(expect_token(TOKEN_KW_DO) != SYNTAX_OK)
+    if(expect_token(TOKEN_KW_DO) != SYNTAX_OK){
+        free(label_start);
+        free(label_end);
         return SYNTAX_ERROR;
-    if(expect_token(TOKEN_EOL) != SYNTAX_OK)
+    }
+    if(expect_token(TOKEN_EOL) != SYNTAX_OK){
+        free(label_start);
+        free(label_end);
         return SYNTAX_ERROR;
+    }
 
     if (!symtable_stack_push(&stack)) {
+        free(label_start);
+        free(label_end);
         return INTERNAL_ERROR;
     }
     current_scope++;
@@ -1200,6 +1343,15 @@ int parse_while() {
 
     symtable_stack_pop(&stack);
     current_scope--;
+
+    //pridani start a labelu pro konec while cyklu
+    if (on_full_pass) {
+        ir_add(OP_JUMP, label_start, NULL, NULL);
+        ir_add(OP_LABEL, label_end, NULL, NULL);
+    }
+    free(label_start);
+    free(label_end);
+
     if(res != SYNTAX_OK) {
         return res;
     }
