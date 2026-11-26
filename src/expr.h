@@ -29,7 +29,7 @@ typedef enum {
 // precedencni tabulka [vrchol zasobniku][vstupni token]
 // E-error; <-posun; >-vyhodnotit; =- zavorky
 static const char precedent_table[15][15] = {
-    // Vstup:    u-   *    /    +    -    <    <=   >    >=   ==   !=   (    )    i    $
+    // Vstup:  u-   *    /    +    -    <    <=   >    >=   ==   !=   (    )    i    $
     /* u- */ {'<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '<', '>', '<', '>'},
     /* *  */ {'<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '<', '>', '<', '>'},
     /* /  */ {'<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '<', '>', '<', '>'},

@@ -1,3 +1,7 @@
+# AI-GENERATED FILE: Tento Makefile byl vygenerován pomocí nástroje Google Gemini.
+# Použitý prompt: "Vytvoř Makefile pro překlad projektu IFJ26 v jazyce C s podporou
+# oddělené složky pro .o soubory, kontroly formátování, Valgrindu a unit testů."
+
 # Kompilátor a přepínače (vyžadováno gcc 14/15/16 nebo clang 19/23 na Merlinovi)
 CC = gcc
 CFLAGS = -std=c17 -Wall -Wextra -g -O2
