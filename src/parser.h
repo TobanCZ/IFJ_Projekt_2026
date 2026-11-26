@@ -5,6 +5,7 @@
 #define OK                                  0 
 #define SYNTAX_OK                           0
 #define SEM_OK                              0
+#define LEX_ERROR                           1
 #define SYNTAX_ERROR                        2
 #define SEM_ERROR_UNDEFINED                 3  //nedefinovana promenna, funkce nebo @main
 #define SEM_ERROR_REDEFINITION              4  //predefinovana promenna, funkce

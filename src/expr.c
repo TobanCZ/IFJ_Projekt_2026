@@ -351,7 +351,7 @@ int reduce(int *sem_error) {
     }
 
     free_items(items, count);
-    PsaItem expr_item;
+    PsaItem expr_item = {0};
     expr_item.token = PSA_EXPR;
     expr_item.data_type = result_type;
     expr_item.addr = result_addr;

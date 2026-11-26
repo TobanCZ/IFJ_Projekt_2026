@@ -42,6 +42,10 @@ bool symtable_insert(Symtable *table, const char *key, Symbol data) {
     copy->irName = data.irName ? copy_str(data.irName) : NULL;
     if (data.paramCount > 0 && data.parameterTypes != NULL) {
         copy->parameterTypes = malloc(sizeof(DataType) * data.paramCount);
+        if (copy->parameterTypes == NULL) {
+            free_symbol(copy);
+            return false;
+        }
         memcpy(copy->parameterTypes, data.parameterTypes, sizeof(DataType) * data.paramCount);
     } else {
         copy->parameterTypes = NULL;

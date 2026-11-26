@@ -8,19 +8,14 @@
 #include "scanner.h"
 
 
-int main(int argc, char** argv) { 
-
+int main() { 
     int result;
     result = parse();
 
-    if(result == SEM_OK)
+    if(result != SYNTAX_OK && result != SEM_OK && result != OK)
     {
-        printf("Program je syntakticky a semanticky spravny\n");
-    }
-    else
-    {
-        printf("Program obsahuje chybu, kod chyby: %d\n", result);
+        fprintf(stderr,"Program error: %d\n", result);
     }
 
-    return 0;
+    return result;
 }

@@ -20,9 +20,9 @@ int parse_program(ParsePass pass);
 int parse_func_def(ParsePass pass);
 
 int parse_expr_or_call(DataType *out_type, char **out_addr);
-int parse_block(DataType *out_type);
+int parse_block(DataType *out_type, char **out_addr);
 
-int parse_statement();
+int parse_statement(DataType *out_type, char **out_addr);
 
 int parse_def();
 int parse_assign();
@@ -78,6 +78,14 @@ int load_all_tokens(){
         tokens[token_count++] = current;
         if (current.type == TOKEN_EOF) 
             break;
+        if (current.type == TOKEN_LEX_ERROR) {
+            free_all_tokens();
+            return LEX_ERROR;
+        }
+        if(current.type == TOKEN_INTERNAL_ERROR) {
+            free_all_tokens();
+            return INTERNAL_ERROR;
+        }
     }
     token_index = 0;
     return OK;
@@ -455,38 +463,46 @@ int parse_func_params(DataType *parameterTypes, int *param_counter) {
 
 int parse_func_body(){
     DataType ret_type = TYPE_UNKNOWN;
+    char *addr = NULL;
 
     //blok nebo jednoratkovej vyraz;
     if (current_token.type == TOKEN_EOL) {
         next_token();
-        int res = parse_block(&ret_type);
-        if (res != SYNTAX_OK)
+        int res = parse_block(&ret_type, &addr);
+        if (res != SYNTAX_OK) {
+            free(addr);
             return res;
+        }
     } 
     else {
-        char *addr = NULL;
         int res = parse_expr_or_call(&ret_type, &addr);
         if (res != SYNTAX_OK){
             free(addr);
             return res;
         }
-        //ulozeni navratu vyrazu
-        if (on_full_pass && addr != NULL && current_function != NULL) {
+
+        if (current_token.type == TOKEN_EOL) {
+            next_token();
+        } 
+        else if (current_token.type != TOKEN_EOF) {
+            free(addr);
+            return SYNTAX_ERROR;
+        }
+    }
+
+    //ulozeni navratu vyrazu (u Unit funkce se vysledek zahodi a vrati se nil@nil)
+    if (on_full_pass && current_function != NULL) {
+        if (current_function->symbolType == TYPE_UNIT) {
+            ir_add(OP_MOVE, "LF@%retval", "nil@nil", NULL);
+        } else if (addr != NULL) {
             if (current_function->symbolType == TYPE_DOUBLE && ret_type == TYPE_INT) {
                 ir_add(OP_INT2FLOAT, "LF@%retval", addr, NULL);
             } else {
                 ir_add(OP_MOVE, "LF@%retval", addr, NULL);
             }
         }
-        free(addr);
-
-        if (current_token.type == TOKEN_EOL) {
-            next_token();
-        } 
-        else if (current_token.type != TOKEN_EOF) {
-            return SYNTAX_ERROR;
-        }
     }
+    free(addr);
 
 
     if(ret_type == TYPE_BOOL) 
@@ -681,7 +697,7 @@ int parse_func_def(ParsePass pass) {
     return res;
 }
 
-int parse_block(DataType *out_type) {
+int parse_block(DataType *out_type, char **out_addr) {
     //Zacatek bloku
     if (expect_token(TOKEN_BLOCK_START) != SYNTAX_OK) 
         return SYNTAX_ERROR;
@@ -693,6 +709,7 @@ int parse_block(DataType *out_type) {
 
     //navratova hodnota pro posledni prikaz v bloku
     DataType last_type = TYPE_UNIT;
+    char *last_addr = NULL;
     bool has_statement = false;
     //Do konce bloku nebo souboru
     while (current_token.type != TOKEN_BLOCK_END && current_token.type != TOKEN_EOF) {
@@ -701,21 +718,33 @@ int parse_block(DataType *out_type) {
             continue;
         }
         has_statement = true;
-        int res = parse_statement(&last_type);
+        free(last_addr);
+        last_addr = NULL;
+        int res = parse_statement(&last_type, (out_addr != NULL) ? &last_addr : NULL);
         if (res != SYNTAX_OK) {
+            free(last_addr);
             return res;
         }
     }
 
-    if (!has_statement)
+    if (!has_statement) {
+        free(last_addr);
         return SYNTAX_ERROR;
+    }
 
     //konec bloku
-    if (expect_token(TOKEN_BLOCK_END) != SYNTAX_OK)
+    if (expect_token(TOKEN_BLOCK_END) != SYNTAX_OK) {
+        free(last_addr);
         return SYNTAX_ERROR;
+    }
 
     if (out_type != NULL) {
         *out_type = last_type;
+    }
+    if (out_addr != NULL) {
+        *out_addr = last_addr;
+    } else {
+        free(last_addr);
     }
     return SYNTAX_OK;
 }
@@ -730,8 +759,11 @@ int parse_expr_or_call(DataType *out_type, char **out_addr) {
     return parse_expr(out_type, out_addr);
 }
 
-int parse_statement(DataType *out_type) {
+int parse_statement(DataType *out_type, char **out_addr) {
     DataType statement_type = TYPE_UNIT;
+    if (out_addr != NULL) {
+        *out_addr = NULL;
+    }
 
     //Blokove prikazy
     if (current_token.type == TOKEN_KW_IF) {
@@ -769,26 +801,35 @@ int parse_statement(DataType *out_type) {
             statement_type = TYPE_UNIT;
         } 
         else if (next.type == TOKEN_PUNCTUATION_LEFT_PAREN) {
-            res = parse_call(&statement_type, NULL);
+            res = parse_call(&statement_type, out_addr);
         } 
         else {
-            res = parse_expr(&statement_type, NULL);
+            res = parse_expr(&statement_type, out_addr);
         }
     } 
     else if (current_token.type == TOKEN_PUNCTUATION_LEFT_PAREN || current_token.type == TOKEN_OPERATOR_MINUS || current_token.type == TOKEN_INT || current_token.type == TOKEN_DOUBLE || current_token.type == TOKEN_STRING ||current_token.type == TOKEN_KW_UNIT) {
-        res = parse_expr(&statement_type, NULL);
+        res = parse_expr(&statement_type, out_addr);
     } 
     else {
         return SYNTAX_ERROR;
     }
 
-    if (res != SYNTAX_OK) 
+    if (res != SYNTAX_OK) {
+        if (out_addr != NULL) {
+            free(*out_addr);
+            *out_addr = NULL;
+        }
         return res;
+    }
 
     //Oddelovac za jednoradkovym prikazem
     if (current_token.type == TOKEN_EOL || current_token.type == TOKEN_PUNCTUATION_SEMICOLON) {
         next_token();
     } else if (current_token.type != TOKEN_BLOCK_END && current_token.type != TOKEN_EOF) {
+        if (out_addr != NULL) {
+            free(*out_addr);
+            *out_addr = NULL;
+        }
         return SYNTAX_ERROR;
     }
 
@@ -867,7 +908,6 @@ int parse_def() {
         symbol.isMutable = is_mutable;
         symbol.paramCount = 0;
         symbol.parameterTypes = NULL;
-        symtable_stack_insert(&stack, symbol.name, symbol);
 
         char *var_ir_name = NULL;
         if (on_full_pass) {
@@ -1146,7 +1186,8 @@ int parse_return() {
     }
 
     //navratovy typ funkce
-    if (current_function != NULL && current_function->symbolType != TYPE_UNKNOWN && ret_type != TYPE_UNKNOWN) {
+    if (current_function != NULL && current_function->symbolType != TYPE_UNKNOWN &&
+        current_function->symbolType != TYPE_UNIT && ret_type != TYPE_UNKNOWN) {
         DataType expected = current_function->symbolType;
         bool valid = (expected == ret_type) || (expected == TYPE_DOUBLE && ret_type == TYPE_INT);
         if (!valid) {
@@ -1157,7 +1198,9 @@ int parse_return() {
 
     //prirazeni navratove hodnoty a skok na konec funkce
     if (on_full_pass && current_function != NULL) {
-        if (return_addr != NULL) {
+        if (current_function->symbolType == TYPE_UNIT) {
+            ir_add(OP_MOVE, "LF@%retval", "nil@nil", NULL);
+        } else if (return_addr != NULL) {
             if (current_function->symbolType == TYPE_DOUBLE && ret_type == TYPE_INT) {
                 ir_add(OP_INT2FLOAT, "LF@%retval", return_addr, NULL);
             } else {
@@ -1217,7 +1260,7 @@ int parse_if(DataType *out_type) {
     current_scope++;
 
     DataType then_type = TYPE_UNIT;
-    res = parse_block(&then_type);
+    res = parse_block(&then_type, NULL);
 
     symtable_stack_pop(&stack);
     current_scope--;
@@ -1254,7 +1297,7 @@ int parse_if(DataType *out_type) {
     current_scope++;
 
     DataType else_type = TYPE_UNIT;
-    res = parse_block(&else_type);
+    res = parse_block(&else_type, NULL);
 
     symtable_stack_pop(&stack);
     current_scope--;
@@ -1339,7 +1382,7 @@ int parse_while() {
     }
     current_scope++;
 
-    res = parse_block(NULL);
+    res = parse_block(NULL, NULL);
 
     symtable_stack_pop(&stack);
     current_scope--;
