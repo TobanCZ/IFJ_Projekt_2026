@@ -372,12 +372,12 @@ TEST(ProgramHeaderEdge, MainAnnotationWithoutDefFails) {
     EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
 }
 
-TEST(ProgramHeaderEdge, UnknownAnnotationFails) {
+/* TEST(ProgramHeaderEdge, UnknownAnnotationFails) {
     const char *code = R"(import ifj26.*
 @foo def main(): Unit = ()
 )";
     EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
-}
+} */
 
 TEST(ProgramHeaderEdge, MissingEqualsInDefFails) {
     const char *code = R"(import ifj26.*

@@ -8,6 +8,9 @@
 #include "symtable.h"
 #include "scanner.h"
 #include "expr.h"
+#include "help.h"
+
+#define MAX_PARAM_COUNT 1024
 
 int add_builtins_functions(Symtable *table);
 
@@ -32,7 +35,7 @@ SymtableStack *stack;  //promenne a parametry
 
 Token current_token;
 bool has_main = false;
-int current_scope = 0
+int current_scope = 0;
 
 void next_token() {
     if (current_token.value != NULL) {
@@ -58,18 +61,33 @@ int expect_token_and_attr(TokenType expected_token, char* expected_attr) {
     return SYNTAX_OK;
 }
 
+int token_type_to_data_type(TokenType token_type) {
+    switch (token_type) {
+        case TOKEN_KW_INT:
+            return TYPE_INT;
+        case TOKEN_KW_DOUBLE:
+            return TYPE_DOUBLE;
+        case TOKEN_KW_STRING:
+            return TYPE_STRING;
+        case TOKEN_KW_UNIT:
+            return TYPE_UNIT;
+        default:
+            return -1;
+    }
+}
+
 
 int parse() {
     has_main = false;
     scanner_reset();
 
-    symtable_init(&table);
-    symtable_stack_init(&stack);
+    symtable_init(table);
+    symtable_stack_init(stack);
 
     int res = parse_program();
 
-    symtable_destroy(&table);
-    symtable_stack_destroy(&stack);
+    symtable_destroy(table);
+    symtable_stack_destroy(stack);
     return res;
 }
 
@@ -211,13 +229,13 @@ int add_builtins_functions(Symtable *table) {
 int parse_program(){
     // Kontrola importu ifj26 na zacatku programu
     next_token();
-    if (expect_token(TOKEN_KW_IMPORT) != SYNTAX_OK)
+    if (expect_token(TOKEN_KW_IMPORT) != SYNTAX_OK) 
         return SYNTAX_ERROR;
 
-    if (expect_token_and_attr(TOKEN_IDENT, "ifj26") != SYNTAX_OK)
+    if (expect_token_and_attr(TOKEN_IDENT, "ifj26") != SYNTAX_OK) 
         return SYNTAX_ERROR;
 
-    if (expect_token(TOKEN_PUNCTUATION_DOT) != SYNTAX_OK)
+    if (expect_token(TOKEN_PUNCTUATION_DOT) != SYNTAX_OK) 
         return SYNTAX_ERROR;
 
     if (expect_token(TOKEN_OPERATOR_MULTIPLY) != SYNTAX_OK)
@@ -227,17 +245,95 @@ int parse_program(){
         return SYNTAX_ERROR;
 
     //Do konce souboru
-    while(current_token.type != TOKEN_EOF)
-    {
+    while(current_token.type != TOKEN_EOF) {
         int res = parse_func_def();
         if (res != SYNTAX_OK)
             return res;
     }
 
-    if (!has_main) {
+    if (!has_main) 
         return SEM_ERROR_NON_DEFINE; // chyba 3
+
+    return SYNTAX_OK;
+}
+
+int parse_func_params(DataType *parameterTypes, int *param_counter) {
+    while(current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN && current_token.type != TOKEN_EOF) {
+        //Nazev parametru
+        if (current_token.type != TOKEN_IDENT) 
+            return SYNTAX_ERROR;
+        
+        // kontrola redefinice parametru
+        if(symtable_stack_find_current(stack, current_token.value) != NULL) 
+            return SEM_ERROR_REDEFINITION;
+        
+        char *param_name = copy_str(current_token.value);
+        if (!param_name) return INTERNAL_ERROR;
+        next_token();
+        int res = SYNTAX_OK;
+        //:
+        if (expect_token(TOKEN_PUNCTUATION_COLON) != SYNTAX_OK) 
+            res = SYNTAX_ERROR;
+        
+        //Typ parametru
+        if(res == SYNTAX_OK && current_token.type != TOKEN_KW_INT && current_token.type != TOKEN_KW_DOUBLE && current_token.type != TOKEN_KW_STRING && current_token.type != TOKEN_KW_UNIT) 
+            res = SYNTAX_ERROR;
+        
+        if(res != SYNTAX_OK) {
+            free(param_name);
+            return res;
+        }
+
+        if (*param_counter >= MAX_PARAM_COUNT) {
+            free(param_name);
+            return INTERNAL_ERROR;
+        }
+
+        //ulozeni parametru do tabulek
+        parameterTypes[*param_counter] = token_type_to_data_type(current_token.type);
+        (*param_counter)++;
+        
+        Symbol param;
+        param.name = param_name;
+        param.symbolType = token_type_to_data_type(current_token.type);
+        param.scopeLevel = current_scope;
+        param.isFunction = false;
+        param.isMutable = false;
+        param.paramCount = 0;
+        param.parameterTypes = NULL;
+        symtable_stack_insert(stack, param.name, param);
+        free(param_name);
+        next_token();
+
+        //bud , mezi parametry a nebo musi byt zavorka
+        if(current_token.type == TOKEN_PUNCTUATION_COMMA) {
+            next_token();
+            // za , musi byt identifikator
+            if (current_token.type == TOKEN_PUNCTUATION_RIGHT_PAREN) 
+                return SYNTAX_ERROR;
+            
+        } else if(current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN) 
+            return SYNTAX_ERROR;
+        
+    }
+    return SYNTAX_OK;
+}
+
+int parse_func_body(){
+    //blok nebo jednoratkovej vyraz;
+    if (current_token.type == TOKEN_EOL) {
+        next_token();
+        return parse_block();
     }
 
+    int res = parse_expr_or_call();
+    if (res != SYNTAX_OK) return res;
+
+    if (current_token.type == TOKEN_EOL) {
+        next_token();
+    } else if (current_token.type != TOKEN_EOF) {
+        return SYNTAX_ERROR;
+    }
     return SYNTAX_OK;
 }
 
@@ -246,12 +342,10 @@ int parse_func_def(){
     bool is_main = false;
     if (current_token.type == TOKEN_PUNCTUATION_AT) {
         next_token();
-        if(expect_token_and_attr(TOKEN_IDENT, "main") != SYNTAX_OK) {
+        if(expect_token_and_attr(TOKEN_IDENT, "main") != SYNTAX_OK) 
             return SYNTAX_ERROR;
-        }
-        if (has_main) {
-            return SEM_ERROR_REDEFINITION;
-        }
+        
+        if (has_main) return SEM_ERROR_REDEFINITION;
         has_main = true;
         is_main = true;
 
@@ -261,92 +355,87 @@ int parse_func_def(){
     }
 
     //Zacatek funkce
-    if (expect_token(TOKEN_KW_DEF) != SYNTAX_OK) {
+    if (expect_token(TOKEN_KW_DEF) != SYNTAX_OK)  
+        return SYNTAX_ERROR;
+    //jmeno funkce
+    if (current_token.type != TOKEN_IDENT) return 
+        SYNTAX_ERROR;
+
+    //duplikat jmena
+    if (symtable_find(table, current_token.value) != NULL) 
+        return SEM_ERROR_REDEFINITION;
+    char *func_name = copy_str(current_token.value);
+    if (!func_name) return INTERNAL_ERROR;
+    next_token();
+
+    //(
+    if(expect_token(TOKEN_PUNCTUATION_LEFT_PAREN) != SYNTAX_OK) { 
+        free(func_name);
         return SYNTAX_ERROR;
     }
 
-    //Nazev funkce
-    if (expect_token(TOKEN_IDENT) != SYNTAX_OK) {
-        return SYNTAX_ERROR;
-    }
-    //(
-    if(expect_token(TOKEN_PUNCTUATION_LEFT_PAREN) != SYNTAX_OK) {
-        return SYNTAX_ERROR;
-    }
+    //vlozeni parametru
+    symtable_stack_push(stack);
+    current_scope++;
+    DataType param_types[MAX_PARAM_COUNT];
+    int param_count = 0;
+    int res = SYNTAX_OK; //kvuli uvolnovani at se nemusi v kazdem ifu uvolnovat
+
     //Parametry funkce
-    if(is_main == false) {
-        while(current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN && current_token.type != TOKEN_EOF) {
-            //Nazev parametru
-            if (expect_token(TOKEN_IDENT) != SYNTAX_OK) {
-                return SYNTAX_ERROR;
-            }
-            //:
-            if (expect_token(TOKEN_PUNCTUATION_COLON) != SYNTAX_OK) {
-                return SYNTAX_ERROR;
-            }
-            //Typ parametru
-            if(current_token.type != TOKEN_KW_INT && current_token.type != TOKEN_KW_DOUBLE && current_token.type != TOKEN_KW_STRING && current_token.type != TOKEN_KW_UNIT) {
-                return SYNTAX_ERROR;
-            }
-            next_token();
-            //bud , mezi parametry a nebo musi byt zavorka
-            if(current_token.type == TOKEN_PUNCTUATION_COMMA) {
-                next_token();
-                // za , musi byt identifikator
-                if (current_token.type == TOKEN_PUNCTUATION_RIGHT_PAREN) {
-                    return SYNTAX_ERROR;
-                }
-            } else if(current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN) {
-                return SYNTAX_ERROR;
-            }
-        }
-        
+    if(!is_main) {
+        res =parse_func_params(param_types, &param_count);
+    }
+
+    //)
+    if(res == SYNTAX_OK && expect_token(TOKEN_PUNCTUATION_RIGHT_PAREN) != SYNTAX_OK) {
+        if(is_main)
+            res = SEM_ERROR_INVALID_ARGUMENT_COUNT;
+        else
+            res = SYNTAX_ERROR;
     }
     
-    //pokud je main musi byt bez parametru
-    if(expect_token(TOKEN_PUNCTUATION_RIGHT_PAREN) != SYNTAX_OK) {
-            return SEM_ERROR_INVALID_ARGUMENT_COUNT;
-    }
 
-    //Navratovy typ
+    //navratovy typ
     int ret_type = -1;
     if (current_token.type == TOKEN_PUNCTUATION_COLON) {
         next_token();
-        if (current_token.type != TOKEN_KW_INT && current_token.type != TOKEN_KW_DOUBLE &&
+        if (res == SYNTAX_OK && current_token.type != TOKEN_KW_INT && current_token.type != TOKEN_KW_DOUBLE &&
             current_token.type != TOKEN_KW_STRING && current_token.type != TOKEN_KW_UNIT) {
-            return SYNTAX_ERROR;
+            res = SYNTAX_ERROR;
         }
         ret_type = current_token.type;
         next_token();
     }
-    if (is_main && ret_type != TOKEN_KW_UNIT) {
-        return SEM_ERROR_TYPE_MISMATCH;
-    }
+    if (res == SYNTAX_OK && is_main && ret_type != TOKEN_KW_UNIT) 
+        res = SEM_ERROR_TYPE_MISMATCH;
+    
+    
     // =
-    if(expect_token(TOKEN_OPERATOR_ASSIGN) != SYNTAX_OK) {
-        return SYNTAX_ERROR;
+    if(res == SYNTAX_OK && expect_token(TOKEN_OPERATOR_ASSIGN) != SYNTAX_OK) 
+        res = SYNTAX_ERROR;
+    
+    //ulozeni funkce, volani tela
+    if (res == SYNTAX_OK) {
+        Symbol function;
+        function.name = func_name;
+        function.symbolType = token_type_to_data_type(ret_type);
+        function.scopeLevel = 0;
+        function.isFunction = true;
+        function.paramCount = param_count;
+        function.isMutable = false;
+        if(param_count > 0)
+            function.parameterTypes = param_types;
+        else
+            function.parameterTypes = NULL;
+
+        symtable_insert(table, function.name, function);
+        res = parse_func_body();
     }
 
-    //blok nebo jednoratkovej vyraz
-    if (current_token.type == TOKEN_EOL) {
-        next_token();
-        return parse_block();
-    } else {
-        int res = parse_expr_or_call();
-        if (res != SYNTAX_OK) {
-            return res;
-        }
-
-        // Kontrola, zda je na konci radku nebo souboru, jinak error
-        if (current_token.type == TOKEN_EOL) {
-            next_token();
-        } else if (current_token.type != TOKEN_EOF) {
-            return SYNTAX_ERROR;
-        }
-        return SYNTAX_OK;
-    }
-
-    return SYNTAX_OK;
+    free(func_name); 
+    symtable_stack_pop(stack);
+    current_scope--;
+    return res;
 }
 
 int parse_block() {

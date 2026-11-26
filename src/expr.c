@@ -9,9 +9,10 @@
 #include "token.h"
 #include "parser.h"
 #include "scanner.h"
+    
 
 //stack
-PsaItem stack[MAX_STACK_SIZE];
+PsaItem psa_stack[MAX_STACK_SIZE];
 int stack_top = -1;
 
 void stack_init(void) {
@@ -22,7 +23,7 @@ int stack_push(PsaItem item) {
     if (stack_top >= MAX_STACK_SIZE - 1) {
         return INTERNAL_ERROR;
     }
-    stack[++stack_top] = item;
+    psa_stack[++stack_top] = item;
     return SEM_OK;
 }
 
@@ -30,7 +31,7 @@ bool stack_pop(PsaItem *out) {
     if (stack_top < 0) {
         return false; 
     }
-    *out = stack[stack_top--];
+    *out = psa_stack[stack_top--];
     return true;
 }
 
@@ -41,8 +42,8 @@ bool stack_top_terminal(PsaItem *out) {
     }
 
     for(int i = stack_top; i >= 0; i--) {
-        if (stack[i].token != PSA_EXPR && stack[i].token != PSA_HANDLE) {
-            *out = stack[i];
+        if (psa_stack[i].token != PSA_EXPR && psa_stack[i].token != PSA_HANDLE) {
+            *out = psa_stack[i];
             return true;
         }
     }
@@ -56,12 +57,12 @@ int stack_insert_handle() {
     }
 
     for(int i = stack_top; i >= 0; i--) {
-        if (stack[i].token != PSA_EXPR && stack[i].token != PSA_HANDLE) {
+        if (psa_stack[i].token != PSA_EXPR && psa_stack[i].token != PSA_HANDLE) {
             for(int j = stack_top + 1; j > i + 1; j--) {
-                stack[j] = stack[j - 1];
+                psa_stack[j] = psa_stack[j - 1];
             }
-            stack[i + 1].token = PSA_HANDLE;
-            stack[i + 1].data_type = -1; 
+            psa_stack[i + 1].token = PSA_HANDLE;
+            psa_stack[i + 1].data_type = -1; 
             stack_top++;
             return SEM_OK;
         }
@@ -209,7 +210,7 @@ int parse_expr(){
 
         //konec pokud jsou oba $ a na zasobniku je jen E a $
         if (top_item.token == PSA_DOLLAR && input_psa_token == PSA_DOLLAR) {
-            if (stack_top == 1 && stack[1].token == PSA_EXPR) {
+            if (stack_top == 1 && psa_stack[1].token == PSA_EXPR) {
                 return SYNTAX_OK;
             }
             return SYNTAX_ERROR;
