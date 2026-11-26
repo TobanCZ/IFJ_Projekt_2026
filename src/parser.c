@@ -2,6 +2,7 @@
     Implementace překladače imperativního jazyka IFJ26.
     autor: Tobiáš Ondra(xondrat00)
 */
+
 #include "parser.h"
 #include "expr.h"
 #include "help.h"
