@@ -1,6 +1,8 @@
 /*
     Implementace překladače imperativního jazyka IFJ26.
+    autor: Tobiáš Ondra(xondrat00)
 */
+
 #define MAX_STACK_SIZE 1024
 
 #include "expr.h"

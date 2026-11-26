@@ -1,5 +1,6 @@
 /*
     Implementace překladače imperativního jazyka IFJ26.
+    autor: Tobiáš Ondra(xondrat00)
 */
 
 #define OK                     0

@@ -1,3 +1,8 @@
+/*
+    Implementace překladače imperativního jazyka IFJ26.
+    autor: Jan Drcmánek(xdrcmaj00)
+*/
+
 #include "ir.h"
 #include <stdio.h>
 #include <stdlib.h>

@@ -1,5 +1,7 @@
 /*
     Implementace překladače imperativního jazyka IFJ26.
+    autor: Peter Dubský(xdubskp00)
+           Tobiáš Ondra(xondrat00)
 */
 
 #ifndef TOKEN_H

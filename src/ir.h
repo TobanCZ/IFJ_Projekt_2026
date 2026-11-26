@@ -1,3 +1,8 @@
+/*
+    Implementace překladače imperativního jazyka IFJ26.
+    autor: Jan Drcmánek(xdrcmaj00)
+*/
+
 #ifndef IR_H
 #define IR_H
 

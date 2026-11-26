@@ -1,5 +1,6 @@
 /*
     Implementace překladače imperativního jazyka IFJ26.
+    autor: Peter Dubský(xdubskp00)
 */
 
 #ifndef SCANNER_H
