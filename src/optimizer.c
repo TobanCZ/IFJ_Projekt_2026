@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Projde seznam IR instrukcí a vyhodnotí operace s konstantami při překladu (constant folding).
+// Výslednou instrukci nahradí přesunem konstanty (OP_MOVE).
 void optimizer(IRNode *ir_head) {
     IRNode *current = ir_head;
 
@@ -48,7 +50,7 @@ void optimizer(IRNode *ir_head) {
                 }
             }
         }
-        // 2. Desetinné dělení
+        // 2. Desetinné dělení, výsledek se ukládá v hexadecimálním formátu
         else if (current->opcode == OP_DIV) {
             double f1, f2;
             if (current->operand1 != NULL && current->operand2 != NULL &&
@@ -68,7 +70,7 @@ void optimizer(IRNode *ir_head) {
                 }
             }
         }
-        // 3. Porovnávání celých čísel
+        // 3. Porovnávání celých čísel (<, >, ==)
         else if (current->opcode == OP_LT || current->opcode == OP_GT || current->opcode == OP_EQ) {
 
             long long val1, val2;
@@ -102,7 +104,7 @@ void optimizer(IRNode *ir_head) {
                 }
             }
         }
-        // 4. Logické operace
+        // 4. Logické operace (AND, OR) nad konstantami bool@
         else if (current->opcode == OP_AND || current->opcode == OP_OR) {
             if (current->operand1 != NULL && current->operand2 != NULL) {
                 int b1 = -1, b2 = -1;
@@ -133,7 +135,7 @@ void optimizer(IRNode *ir_head) {
                 }
             }
         }
-        // 5. Logická negace
+        // 5. Logická negace (NOT) nad konstantou bool@
         else if (current->opcode == OP_NOT) {
             if (current->operand1 != NULL) {
                 int is_true  = (strcmp(current->operand1, "bool@true") == 0);
@@ -154,7 +156,7 @@ void optimizer(IRNode *ir_head) {
                 }
             }
         }
-        // 6. Převody mezi Int a Double
+        // 6. Převody konstant mezi typy Int (int@) a Double (float@)
         else if (current->opcode == OP_INT2FLOAT) {
             long long val;
             if (current->operand1 != NULL && sscanf(current->operand1, "int@%lld", &val) == 1) {
@@ -186,7 +188,7 @@ void optimizer(IRNode *ir_head) {
                 }
             }
         }
-        // 7. Délka konstantního řetězce
+        // 7. Výpočet délky konstantního řetězce (přeskočí prefix "string@")
         else if (current->opcode == OP_STRLEN) {
             if (current->operand1 != NULL && strncmp(current->operand1, "string@", 7) == 0) {
                 size_t length     = strlen(current->operand1 + 7);
@@ -208,6 +210,8 @@ void optimizer(IRNode *ir_head) {
     }
 }
 
+// Odstraní nedosažitelné instrukce (dead code) za nepodmíněným skokem, návratem z funkce
+// nebo ukončením programu až po nejbližší label (OP_LABEL).
 void eliminate_dead_code(IRNode *ir_head) {
     IRNode *current = ir_head;
 
@@ -217,6 +221,7 @@ void eliminate_dead_code(IRNode *ir_head) {
 
             IRNode *dead_node = current->next;
 
+            // Maže a uvolňuje všechny následující uzly, dokud nenarazí na další label.
             while (dead_node != NULL && dead_node->opcode != OP_LABEL) {
                 IRNode *next_dead = dead_node->next;
 
@@ -227,6 +232,7 @@ void eliminate_dead_code(IRNode *ir_head) {
 
                 dead_node = next_dead;
             }
+            // Napojíme seznam zpět na nalezený label (nebo NULL na konci seznamu).
             current->next = dead_node;
         }
         current = current->next;

@@ -3,10 +3,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Vypíše povinnou hlavičku cílového kódu IFJcode26.
 void gen_header(void) {
     printf(".IFJcode26\n");
 }
 
+// Vypíše řetězcovou konstantu s escapováním speciálních znaků (\xyz).
 static void print_escaped_string(const char *str) {
     printf("string@");
     if (str == NULL) {
@@ -15,6 +17,7 @@ static void print_escaped_string(const char *str) {
 
     for (size_t i = 0; str[i] != '\0'; i++) {
         unsigned char c = (unsigned char)str[i];
+        // Escapují se řídicí znaky, mezera (<= 32), mřížka '#' (35) a zpětné lomítko '\' (92).
         if (c <= 32 || c == 35 || c == 92) {
             printf("\\%03u", c);
         } else {
@@ -23,6 +26,7 @@ static void print_escaped_string(const char *str) {
     }
 }
 
+// Vypíše operand ve správném formátu IFJcode26.
 static void print_operand(const char *op) {
     if (op == NULL) {
         return;
@@ -42,6 +46,7 @@ static void print_operand(const char *op) {
     printf("%s", op);
 }
 
+// Pomocné funkce pro výpis instrukcí s 1, 2 nebo 3 operandy.
 static void emit_1(const char *instr, const char *op1) {
     printf("%s ", instr);
     print_operand(op1);
@@ -66,6 +71,7 @@ static void emit_3(const char *instr, const char *op1, const char *op2, const ch
     putchar('\n');
 }
 
+// Vypíše název labelu bez úprav.
 static void print_label(const char *label) {
     if (label == NULL) {
         return;
@@ -73,6 +79,7 @@ static void print_label(const char *label) {
     printf("%s", label);
 }
 
+// Vygeneruje implementace všech vestavěných funkcí jazyka IFJ26 na konec programu.
 void generate_builtins(void) {
     printf("\n# --- VESTAVENE FUNKCE IFJ26 ---\n");
 
@@ -195,6 +202,7 @@ void generate_builtins(void) {
     printf("GT LF@cond LF@%%2 LF@len\n");
     printf("JUMPIFEQ $substr_err LF@cond bool@true\n");
 
+    // Skládání podřetězce po jednotlivých znacích
     printf("MOVE LF@%%retval string@\n");
     printf("LABEL $substr_loop\n");
     printf("EQ LF@cond LF@%%1 LF@%%2\n");
@@ -240,6 +248,7 @@ void generate_builtins(void) {
     printf("RETURN\n");
 }
 
+// Projde celý seznam IR instrukcí a vypíše odpovídající kód v IFJcode26 na stdout.
 void generate_target_code(IRNode *ir_head) {
     gen_header();
 
@@ -247,12 +256,15 @@ void generate_target_code(IRNode *ir_head) {
 
     while (current != NULL) {
         switch (current->opcode) {
+        // Proměnné a přiřazení
         case OP_DEFVAR:
             emit_1("DEFVAR", current->dest);
             break;
         case OP_MOVE:
             emit_2("MOVE", current->dest, current->operand1);
             break;
+
+        // Aritmetické operace
         case OP_ADD:
             emit_3("ADD", current->dest, current->operand1, current->operand2);
             break;
@@ -268,6 +280,8 @@ void generate_target_code(IRNode *ir_head) {
         case OP_DIV:
             emit_3("DIV", current->dest, current->operand1, current->operand2);
             break;
+
+        // Logické operace a konverze typů
         case OP_AND:
             emit_3("AND", current->dest, current->operand1, current->operand2);
             break;
@@ -283,6 +297,8 @@ void generate_target_code(IRNode *ir_head) {
         case OP_FLOAT2INT:
             emit_2("FLOAT2INT", current->dest, current->operand1);
             break;
+
+        // Relační operace
         case OP_EQ:
             emit_3("EQ", current->dest, current->operand1, current->operand2);
             break;
@@ -292,9 +308,8 @@ void generate_target_code(IRNode *ir_head) {
         case OP_LT:
             emit_3("LT", current->dest, current->operand1, current->operand2);
             break;
-        case OP_WRITE:
-            emit_1("WRITE", current->dest);
-            break;
+
+        // Label a skoky
         case OP_LABEL:
             printf("LABEL ");
             print_label(current->dest);
@@ -323,6 +338,8 @@ void generate_target_code(IRNode *ir_head) {
             print_operand(current->operand2);
             putchar('\n');
             break;
+
+        // Rámce a volání funkcí
         case OP_CREATEFRAME:
             printf("CREATEFRAME\n");
             break;
@@ -338,12 +355,19 @@ void generate_target_code(IRNode *ir_head) {
         case OP_CALL:
             emit_1("CALL", current->dest);
             break;
+
+        // Vstup, výstup a zjištění typu
+        case OP_WRITE:
+            emit_1("WRITE", current->dest);
+            break;
         case OP_READ:
             emit_2("READ", current->dest, current->operand1);
             break;
         case OP_TYPE:
             emit_2("TYPE", current->dest, current->operand1);
             break;
+
+        // Práce s řetězci a ukončení programu
         case OP_CONCAT:
             emit_3("CONCAT", current->dest, current->operand1, current->operand2);
             break;
@@ -359,6 +383,7 @@ void generate_target_code(IRNode *ir_head) {
         case OP_EXIT:
             emit_1("EXIT", current->dest);
             break;
+
         default:
             fprintf(stderr, "codegen warning: unknown or unhandled opcode (%d)\n",
                     (int)current->opcode);
@@ -366,9 +391,11 @@ void generate_target_code(IRNode *ir_head) {
         }
         current = current->next;
     }
+
     generate_builtins();
 }
 
+// Vygeneruje unikátní název labelu.
 char *generate_unique_label(void) {
     static int counter = 0;
 
@@ -383,6 +410,7 @@ char *generate_unique_label(void) {
     return label_name;
 }
 
+// Uvolní celý spojový seznam IR uzlů včetně dynamicky alokovaných operandů.
 void free_ir_list(IRNode *head) {
     IRNode *current = head;
     while (current != NULL) {
