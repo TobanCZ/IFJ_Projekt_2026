@@ -1,3 +1,9 @@
+/**
+ * Projekt: Překladač jazyka IFJ26 (IFJ/IAL)
+ * Soubor: src/ir.h
+ * Autoři: Jan Drcmánek (xdrcmaj00)
+ */
+
 typedef enum {
     OP_DEFVAR,
     OP_MOVE,

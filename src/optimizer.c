@@ -1,3 +1,9 @@
+/**
+ * Projekt: Překladač jazyka IFJ26 (IFJ/IAL)
+ * Soubor: src/optimizer.c
+ * Autoři: Jan Drcmánek (xdrcmaj00)
+ */
+
 #include "ir.h"
 #include <stdio.h>
 #include <stdlib.h>
