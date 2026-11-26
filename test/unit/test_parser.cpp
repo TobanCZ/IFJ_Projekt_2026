@@ -339,48 +339,299 @@ TEST(Expressions, EmptyIfConditionFails) {
 }
 
 // ============================================================
-// 4. LEXIKALNI CHYBY (Varianta A: scanner vola exit(1))
+// 5. EDGE CASY - HLAVICKA A STRUKTURA PROGRAMU
 // ============================================================
 
-TEST(ScannerLexical, TabAtLineStartExitsWith1) {
-    const char *code = "import ifj26.*\n@main def main(): Unit =\n\tval x = 1\n";
-    fflush(NULL);
-    EXPECT_EXIT(run_parser(code), ::testing::ExitedWithCode(1), "");
-}
-
-TEST(ScannerLexical, InvalidIndentLevelExitsWith1) {
+TEST(ProgramHeaderEdge, TopLevelStatementFails) {
     const char *code = R"(import ifj26.*
-@main def main(): Unit =
-    val a = 1
-  val b = 2
-)";
-    fflush(NULL);
-    EXPECT_EXIT(run_parser(code), ::testing::ExitedWithCode(1), "");
-}
-
-TEST(ScannerLexical, UnclosedStringExitsWith1) {
-    const char *code = R"(import ifj26.*
-@main def main(): Unit =
-    val s = "neuzavreny
-)";
-    fflush(NULL);
-    EXPECT_EXIT(run_parser(code), ::testing::ExitedWithCode(1), "");
-}
-
-TEST(ScannerLexical, UnderscoreIdentifierExitsWith1) {
-    const char *code = R"(import ifj26.*
-@main def main(): Unit =
-    val _ = 1
-)";
-    fflush(NULL);
-    EXPECT_EXIT(run_parser(code), ::testing::ExitedWithCode(1), "");
-}
-
-TEST(ScannerLexical, UnclosedBlockCommentExitsWith1) {
-    const char *code = R"(import ifj26.*
-/* neuzavreny komentar
+val x = 1
 @main def main(): Unit = ()
 )";
-    fflush(NULL);
-    EXPECT_EXIT(run_parser(code), ::testing::ExitedWithCode(1), "");
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ProgramHeaderEdge, DuplicateImportFails) {
+    const char *code = R"(import ifj26.*
+import ifj26.*
+@main def main(): Unit = ()
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ProgramHeaderEdge, TokenAfterImportOnSameLineFails) {
+    const char *code = R"(import ifj26.* def f(): Unit = ()
+@main def main(): Unit = ()
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ProgramHeaderEdge, MainAnnotationWithoutDefFails) {
+    const char *code = R"(import ifj26.*
+@main val x = 1
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ProgramHeaderEdge, UnknownAnnotationFails) {
+    const char *code = R"(import ifj26.*
+@foo def main(): Unit = ()
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ProgramHeaderEdge, MissingEqualsInDefFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit
+    ()
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ProgramHeaderEdge, MissingReturnTypeAfterColonFails) {
+    const char *code = R"(import ifj26.*
+def f(): = 1
+@main def main(): Unit = ()
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ProgramHeaderEdge, MissingParamTypeAfterColonFails) {
+    const char *code = R"(import ifj26.*
+def f(a: ): Int = a
+@main def main(): Unit = ()
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ProgramHeaderEdge, NestedDefInsideFunctionFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    def inner(): Unit = ()
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+// ============================================================
+// 6. EDGE CASY - PRIKAZY A BLOKY
+// ============================================================
+
+TEST(StatementsEdge, TwoStatementsWithoutSemicolonFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    val a = 1 val b = 2
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(StatementsEdge, IfWithoutThenFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    if 1 < 2
+        val a = 1
+    else
+        val a = 2
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(StatementsEdge, WhileWithoutDoFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    while 1 < 2
+        val a = 1
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(StatementsEdge, StandaloneElseFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    else
+        val a = 1
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(StatementsEdge, KeywordAsVarNameFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    val if = 1
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(StatementsEdge, KeywordAsFuncNameFails) {
+    const char *code = R"(import ifj26.*
+def while(): Unit = ()
+@main def main(): Unit = ()
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(StatementsEdge, AssignToLiteralFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    5 = 10
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(StatementsEdge, AssignToExprFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    (a + b) = 1
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(StatementsEdge, StatementAfterReturnFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    return val x = 1
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(StatementsEdge, CallUnclosedParenFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    foo(1, 2
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(StatementsEdge, CallExtraRightParenFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    foo(1, 2))
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(StatementsEdge, CallLeadingCommaFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    foo(, 1)
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(StatementsEdge, CallDoubleCommaFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    foo(1,, 2)
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+// ============================================================
+// 7. EDGE CASY - VYRAZY (PSA)
+// ============================================================
+
+TEST(ExpressionsEdge, UnaryPlusFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    val x = +5
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ExpressionsEdge, UnaryPlusAfterOperatorFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    val x = 1 + +2
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ExpressionsEdge, DanglingUnaryMinusFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    val x = -
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ExpressionsEdge, DanglingUnaryMinusInParensFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    val x = (-)
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ExpressionsEdge, AssignInsideIfConditionFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    if a = 5 then
+        val x = 1
+    else
+        val x = 2
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ExpressionsEdge, AssignInsideParensFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    val x = (a = 1)
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ExpressionsEdge, ImplicitMultiplicationBeforeParenFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    val x = 2(3 + 4)
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ExpressionsEdge, ImplicitMultiplicationAfterParenFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    val x = (1 + 2)3
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ExpressionsEdge, ImplicitMultiplicationTwoParensFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    val x = (1 + 2)(3 + 4)
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ExpressionsEdge, OperatorBeforeRightParenFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    val x = (1 + )
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ExpressionsEdge, EmptyWhileConditionFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    while do
+        val a = 1
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ExpressionsEdge, TwoUnitLiteralsInRowFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    val x = () ()
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
+}
+
+TEST(ExpressionsEdge, OperandFollowedByUnitLiteralFails) {
+    const char *code = R"(import ifj26.*
+@main def main(): Unit =
+    val x = 1 ()
+)";
+    EXPECT_EQ(run_parser(code), SYNTAX_ERROR);
 }
