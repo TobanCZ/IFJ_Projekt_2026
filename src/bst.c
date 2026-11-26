@@ -1,3 +1,7 @@
+/*
+    Implementace překladače imperativního jazyka IFJ26.
+    autor: Michal Böhm(xbohmmi00)
+*/
 
 #include "bst.h"
 #include <stdlib.h>
@@ -53,7 +57,7 @@ static BSTNode *rotate_left(BSTNode *x) {
     return y;
 }
 
-static BSTNode *insert_recursive(BSTNode *node, const char *key, Symbol data, bool *inserted) {
+static BSTNode *insert_recursive(BSTNode *node, const char *key, void *data, bool *inserted) {
     // Základní případ: pokud je uzel NULL, vytvoříme nový uzel
     if (node == NULL) {
         BSTNode *newNode = (BSTNode *)malloc(sizeof(BSTNode));
@@ -117,15 +121,15 @@ static BSTNode *insert_recursive(BSTNode *node, const char *key, Symbol data, bo
 // Konec implementace AVL stromu pro tabulku symbolů
 
 // Pomocná funkce pro rekurzivní uvolnění paměti
-static void destroy_recursive(BSTNode *node) {
+static void destroy_recursive(BSTNode *node, void (*free_data)(void *data)) {
     if (node == NULL) {
         return;
     }
-    destroy_recursive(node->left);
-    destroy_recursive(node->right);
+    destroy_recursive(node->left, free_data);
+    destroy_recursive(node->right, free_data);
 
-    if (node->data.parameterTypes != NULL) {
-        free(node->data.parameterTypes);
+    if (free_data != NULL && node->data != NULL) {
+        free_data(node->data); // Uvolnění paměti pro data symbolu
     }
 
     free(node->key); // Uvolnění paměti pro klíč
@@ -133,14 +137,14 @@ static void destroy_recursive(BSTNode *node) {
 }
 
 // Pomocná funkce pro vyhledání symbolu v tabulce symbolů
-static Symbol *find_recursive(BSTNode *node, const char *key) {
+static void *find_recursive(BSTNode *node, const char *key) {
     if (node == NULL) {
         return NULL; // Symbol nebyl nalezen
     }
 
     int cmp = strcmp(key, node->key);
     if (cmp == 0) {
-        return &(node->data); // Symbol nalezen, vracíme ukazatel na data symbolu
+        return (node->data); // Symbol nalezen, vracíme ukazatel na data symbolu
     } else if (cmp < 0) {
         return find_recursive(node->left, key); // Hledáme v levém podstromu
     } else {
@@ -149,10 +153,13 @@ static Symbol *find_recursive(BSTNode *node, const char *key) {
 }
 
 void bst_init(BSTNode **tree) {
+    if (tree == NULL) {
+        return; // Neplatný vstup
+    }
     *tree = NULL; // Inicializace stromu jako prázdného stromu
 }
 
-bool bst_insert(BSTNode **tree, const char *key, Symbol data) {
+bool bst_insert(BSTNode **tree, const char *key, void *data) {
     if (tree == NULL || key == NULL) {
         return false; // Neplatný vstup
     }
@@ -162,14 +169,17 @@ bool bst_insert(BSTNode **tree, const char *key, Symbol data) {
     return inserted;
 }
 
-Symbol *bst_find(BSTNode *tree, const char *key) {
+void *bst_find(BSTNode *tree, const char *key) {
     if (tree == NULL || key == NULL) {
         return NULL; // Neplatný vstup
     }
     return find_recursive(tree, key);
 }
 
-void bst_dispose(BSTNode **tree) {
-    destroy_recursive(*tree);
+void bst_dispose(BSTNode **tree, void (*free_data)(void *data)) {
+    if (tree == NULL) {
+        return; // Neplatný vstup
+    }
+    destroy_recursive(*tree, free_data);
     *tree = NULL;
 }
