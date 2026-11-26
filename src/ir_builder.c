@@ -8,39 +8,40 @@
 #include <stdlib.h>
 #include <string.h>
 
-static IRNode *ir_first = NULL; //vrchol
-static IRNode *ir_last = NULL; //posledni
+static IRNode *ir_first           = NULL; // vrchol
+static IRNode *ir_last            = NULL; // posledni
 static IRNode *func_defvar_anchor = NULL;
 
-static int tmp_counter = 0;
-static int var_counter = 0;
+static int tmp_counter   = 0;
+static int var_counter   = 0;
 static int label_counter = 0;
 
 void ir_builder_init(void) {
-    ir_first = NULL;
-    ir_last = NULL;
+    ir_first           = NULL;
+    ir_last            = NULL;
     func_defvar_anchor = NULL;
-    tmp_counter = 0;
-    var_counter = 0;
-    label_counter = 0;
+    tmp_counter        = 0;
+    var_counter        = 0;
+    label_counter      = 0;
 }
 
 IRNode *ir_add(Opcode op, const char *dest, const char *op1, const char *op2) {
     IRNode *node = malloc(sizeof(IRNode));
-    if (!node) return NULL;
+    if (!node)
+        return NULL;
 
-    node->opcode = op;
-    node->dest = dest ? copy_str(dest) : NULL;
+    node->opcode   = op;
+    node->dest     = dest ? copy_str(dest) : NULL;
     node->operand1 = op1 ? copy_str(op1) : NULL;
     node->operand2 = op2 ? copy_str(op2) : NULL;
-    node->next = NULL;
+    node->next     = NULL;
 
-    //pridani na konec seznamu
+    // pridani na konec seznamu
     if (ir_first == NULL) {
         ir_first = ir_last = node;
     } else {
         ir_last->next = node;
-        ir_last = node;
+        ir_last       = node;
     }
     return node;
 }
@@ -54,22 +55,23 @@ void ir_set_func_anchor(void) {
 }
 
 void ir_add_defvar(const char *var_name) {
-    //bez kotvy nakonec
+    // bez kotvy nakonec
     if (func_defvar_anchor == NULL) {
         ir_add(OP_DEFVAR, var_name, NULL, NULL);
         return;
     }
 
     IRNode *node = malloc(sizeof(IRNode));
-    if (!node) return;
+    if (!node)
+        return;
 
-    node->opcode = OP_DEFVAR;
-    node->dest = copy_str(var_name);
+    node->opcode   = OP_DEFVAR;
+    node->dest     = copy_str(var_name);
     node->operand1 = NULL;
     node->operand2 = NULL;
 
     // vlozi se za kotvu na zacatku funkce
-    node->next = func_defvar_anchor->next;
+    node->next               = func_defvar_anchor->next;
     func_defvar_anchor->next = node;
 
     if (ir_last == func_defvar_anchor) {
@@ -100,9 +102,10 @@ char *ir_create_label(const char *prefix) {
 
 // Odstrani podtrzitka z ciselnych literalu (napr. "1_000" -> "1000")
 static char *strip_underscores(const char *str) {
-    size_t len = strlen(str);
+    size_t len  = strlen(str);
     char *clean = malloc(len + 1);
-    if (!clean) return NULL;
+    if (!clean)
+        return NULL;
     size_t j = 0;
     for (size_t i = 0; i < len; i++) {
         if (str[i] != '_') {
@@ -116,33 +119,38 @@ static char *strip_underscores(const char *str) {
 char *ir_from_token_to_operand(Token token) {
     if (token.type == TOKEN_INT) {
         char *clean = strip_underscores(token.value);
-        if (!clean) return NULL;
+        if (!clean)
+            return NULL;
         size_t len = strlen(clean) + 5;
-        char *res = malloc(len);
-        if (res) snprintf(res, len, "int@%s", clean);
+        char *res  = malloc(len);
+        if (res)
+            snprintf(res, len, "int@%s", clean);
         free(clean);
         return res;
     }
     if (token.type == TOKEN_DOUBLE) {
         char *clean = strip_underscores(token.value);
-        if (!clean) return NULL;
+        if (!clean)
+            return NULL;
         // Odstranime pripadnou koncovou priponu 'd' nebo 'D'
         size_t clen = strlen(clean);
         if (clen > 0 && (clean[clen - 1] == 'd' || clean[clen - 1] == 'D')) {
             clean[clen - 1] = '\0';
         }
         size_t len = strlen(clean) + 7;
-        char *res = malloc(len);
+        char *res  = malloc(len);
         // codegen.c v print_operand() sam prevede "float@..." pres %a
-        if (res) snprintf(res, len, "float@%s", clean);
+        if (res)
+            snprintf(res, len, "float@%s", clean);
         free(clean);
         return res;
     }
     if (token.type == TOKEN_STRING) {
         size_t len = strlen(token.value) + 8;
-        char *res = malloc(len);
+        char *res  = malloc(len);
         // codegen.c v print_operand() sam escapuje znaky <= 32, '#' a '\'
-        if (res) snprintf(res, len, "string@%s", token.value);
+        if (res)
+            snprintf(res, len, "string@%s", token.value);
         return res;
     }
     // Literal Unit ()

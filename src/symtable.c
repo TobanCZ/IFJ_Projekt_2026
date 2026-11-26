@@ -5,8 +5,8 @@
 
 #include "symtable.h"
 #include "bst.h"
-#include <stdlib.h>
 #include "help.h"
+#include <stdlib.h>
 
 // Pomocná funkce pro uvolnění jednoho Symbolu (callback pro bst_dispose)
 static void free_symbol(void *data) {
@@ -31,17 +31,20 @@ bool symtable_insert(Symtable *table, const char *key, Symbol data) {
         return false; // Neplatný vstup
     }
 
-
     Symbol *copy = (Symbol *)malloc(sizeof(Symbol));
     if (copy == NULL) {
         return false;
     }
     *copy = data;
-    //Hluboka kopie
-    copy->name = data.name ? copy_str(data.name) : NULL;
+    // Hluboka kopie
+    copy->name   = data.name ? copy_str(data.name) : NULL;
     copy->irName = data.irName ? copy_str(data.irName) : NULL;
     if (data.paramCount > 0 && data.parameterTypes != NULL) {
         copy->parameterTypes = malloc(sizeof(DataType) * data.paramCount);
+        if (copy->parameterTypes == NULL) {
+            free_symbol(copy);
+            return false;
+        }
         memcpy(copy->parameterTypes, data.parameterTypes, sizeof(DataType) * data.paramCount);
     } else {
         copy->parameterTypes = NULL;

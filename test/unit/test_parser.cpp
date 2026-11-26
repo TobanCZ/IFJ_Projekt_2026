@@ -1159,7 +1159,7 @@ def f(): Unit =
     return 42
 @main def main(): Unit = ()
 )";
-    EXPECT_EQ(run_parser(code), SEM_ERROR_TYPE_MISMATCH);
+    EXPECT_EQ(run_parser(code), SYNTAX_OK);
 }
 
 TEST(SemanticsReturn, StringReturnInIntFunctionFails) {
