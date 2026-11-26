@@ -1,5 +1,6 @@
 ifj26
 *.o
+run_unit_tests*.o
 obj/
 build/
 run_unit_tests
