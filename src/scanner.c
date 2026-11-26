@@ -64,6 +64,18 @@ static bool divide_is_next = false;
 // True when the main is the next token after @.
 static bool main_is_next = false;
 
+// Returned by every call after the first error.
+static Token scanner_error_token;
+
+// True after the first error, scanner stops reading.
+static bool scanner_failed = false;
+
+// Token saved by peek_token.
+static Token peeked_token;
+
+// True when peeked_token holds a token.
+static bool has_peeked_token = false;
+
 // Starting size of the text of a token.
 #define INITIAL_TOKEN_TEXT_CAPACITY 16
 
@@ -169,20 +181,61 @@ void scanner_reset(void) {
     divide_is_next = false;
 }
 
-// Prints a lexical error to stderr and exits with code 1.
-static Token lexical_error(int line, int c)
-{
-    fprintf(stderr, "Lexical error, line %d: unexpected character: '%c'\n", line, c);
-    exit(1);
-}
-
-
-
 // Returns a token with the given type and line.
 static Token make_token(TokenType type, int line)
 {
     Token token = { type, NULL, line };
     return token;
+}
+
+
+// Returns a malloc copy of text or NULL on failure.
+static char *duplicate_error_message(const char *text)
+{
+    size_t length = strlen(text);
+    char *copy = malloc(length + 1);
+
+    if (copy != NULL)
+    {
+        memcpy(copy, text, length + 1);
+    }
+    return copy;
+}
+
+
+
+// Stores the first error, message goes in token.value.
+static void raise_error(TokenType type, int line, const char *text)
+{
+    if (scanner_failed)
+    {
+        return;
+    }
+    scanner_failed = true;
+    scanner_error_token = make_token(type, line);
+    scanner_error_token.value = duplicate_error_message(text);
+}
+
+
+
+// Stores a lexical error for an unexpected character.
+static void lexical_error(int line, int c)
+{
+    char text[64];
+
+    if (c == '\n')
+    {
+        snprintf(text, sizeof text, "unexpected end of line");
+    }
+    else if (c == EOF)
+    {
+        snprintf(text, sizeof text, "unexpected end of file");
+    }
+    else
+    {
+        snprintf(text, sizeof text, "unexpected character: '%c'", c);
+    }
+    raise_error(TOKEN_LEX_ERROR, line, text);
 }
 
 
@@ -213,7 +266,7 @@ static Token single_character_token(int character, int line)
         case '*':
             return make_token(TOKEN_OPERATOR_MULTIPLY, line);
         default:
-            return lexical_error(line, character);
+            return make_token(TOKEN_LEX_ERROR, line);
     }
 }
 
@@ -226,6 +279,12 @@ static Token read_token(int character)
 
     line_is_empty = false;
     new_token = single_character_token(character, current_line);
+
+    if (new_token.type == TOKEN_LEX_ERROR)
+    {
+        lexical_error(current_line, character);
+        return new_token;
+    }
 
     if (new_token.type == TOKEN_PUNCTUATION_LEFT_PAREN)
     {
@@ -263,8 +322,8 @@ static void check_block_level(int spaces)
     {
         if (current_depth == MAX_DEPTH)
         {
-            fprintf(stderr, "Lexical error, line %d: too many nested blocks\n", current_line);
-            exit(1);
+            raise_error(TOKEN_LEX_ERROR, current_line, "too many nested blocks");
+            return;
         }
 
         indent_levels[current_depth] = spaces;
@@ -280,8 +339,8 @@ static void check_block_level(int spaces)
 
     if (spaces != indent_levels[current_depth - 1])
     {
-        fprintf(stderr, "Lexical error, line %d: invalid block level\n", current_line);
-        exit(1);
+        raise_error(TOKEN_SYNTAX_ERROR, current_line, "invalid block level");
+        return;
     }
 }
 
@@ -292,8 +351,8 @@ static void check_line_start(void)
 {
     if (line_start_has_tab)
     {
-        fprintf(stderr, "Lexical error, line %d: tab at line start\n", current_line);
-        exit(1);
+        raise_error(TOKEN_LEX_ERROR, current_line, "tab at line start");
+        return;
     }
     logical_line_spaces = line_start_spaces;
     check_block_level(line_start_spaces);
@@ -307,8 +366,8 @@ static void check_line_continuation(void)
 {
     if (line_start_has_tab || line_start_spaces <= logical_line_spaces)
     {
-        fprintf(stderr, "Lexical error, line %d: continuation line is not indented\n", current_line);
-        exit(1);
+        raise_error(TOKEN_LEX_ERROR, current_line, "continuation line is not indented");
+        return;
     }
 }
 
@@ -329,14 +388,23 @@ static bool is_word_char(int character)
 
 
 
-// Starts an empty text for a token, exits with code 99 if it fails.
+// Starts empty token text, stores internal error on failure.
 static void allocate_word(TokenText *token_text)
 {
+    if (scanner_failed)
+    {
+        token_text->text = NULL;
+        token_text->length = 0;
+        token_text->capacity = 0;
+        return;
+    }
     token_text->text = malloc(INITIAL_TOKEN_TEXT_CAPACITY);
     if (token_text->text == NULL)
     {
-        fprintf(stderr, "Internal error: out of memory\n");
-        exit(99);
+        raise_error(TOKEN_INTERNAL_ERROR, current_line, "out of memory");
+        token_text->length = 0;
+        token_text->capacity = 0;
+        return;
     }
     token_text->text[0] = '\0';
     token_text->length = 0;
@@ -370,8 +438,7 @@ static Token make_word_token(char *word)
 
     if (strcmp(word, "_") == 0)
     {
-        fprintf(stderr, "Lexical error, line %d: identifier '_' is not allowed\n", current_line);
-        exit(1);
+        raise_error(TOKEN_LEX_ERROR, current_line, "identifier '_' is not allowed");
     }
 
     token = make_token(type, current_line);
@@ -393,6 +460,10 @@ static void append_char(TokenText *token_text, int character_to_add)
 {
     char *new_text;
     int new_capacity;
+    if (scanner_failed)
+    {
+        return;
+    }
 
     if (token_text->length + 2 > token_text->capacity)
     {
@@ -400,8 +471,8 @@ static void append_char(TokenText *token_text, int character_to_add)
         new_text = realloc(token_text->text, new_capacity);
         if (new_text == NULL)
         {
-            fprintf(stderr, "Internal error: out of memory\n");
-            exit(99);
+            raise_error(TOKEN_INTERNAL_ERROR, current_line, "out of memory");
+            return;
         }
         token_text->text = new_text;
         token_text->capacity = new_capacity;
@@ -441,6 +512,11 @@ static bool number_end_step(int character, ScannerState *current_state, TokenTex
             lexical_error(current_line, character);
         }
         *current_state = STATE_NUMBER_SUFFIX;
+        return false;
+    }
+    if (is_word_char(character))
+    {
+        lexical_error(current_line, character);
         return false;
     }
     ungetc(character, stdin);
@@ -496,10 +572,6 @@ static bool integer_state_step(int character, ScannerState *current_state, Token
             return integer_end_step(character, current_state, number, result_token);
 
         case STATE_ZERO_UNDERSCORE:
-            if (character == '_')
-            {
-                return false;
-            }
             add_digit_after_underscore(character, number);
             *current_state = (character == '0') ? STATE_ZERO_DIGITS : STATE_ZERO_NONZERO;
             return false;
@@ -532,10 +604,6 @@ static bool integer_state_step(int character, ScannerState *current_state, Token
             return integer_end_step(character, current_state, number, result_token);
 
         case STATE_ZERO_DIGITS_UNDERSCORE:
-            if (character == '_')
-            {
-                return false;
-            }
             add_digit_after_underscore(character, number);
             *current_state = (character == '0') ? STATE_ZERO_DIGITS : STATE_ZERO_NONZERO;
             return false;
@@ -561,14 +629,10 @@ static bool integer_state_step(int character, ScannerState *current_state, Token
             {
                 return number_end_step(character, current_state, number, TOKEN_DOUBLE, result_token);
             }
-            lexical_error(current_line, character);
+            raise_error(TOKEN_LEX_ERROR, current_line, "number cannot start with 0");
             return false;
 
         case STATE_ZERO_NONZERO_UNDERSCORE:
-            if (character == '_')
-            {
-                return false;
-            }
             add_digit_after_underscore(character, number);
             *current_state = STATE_ZERO_NONZERO;
             return false;
@@ -587,10 +651,6 @@ static bool integer_state_step(int character, ScannerState *current_state, Token
             return integer_end_step(character, current_state, number, result_token);
 
         case STATE_INT_UNDERSCORE:
-            if (character == '_')
-            {
-                return false;
-            }
             add_digit_after_underscore(character, number);
             *current_state = STATE_INT;
             return false;
@@ -630,10 +690,6 @@ static bool fraction_state_step(int character, ScannerState *current_state, Toke
             return number_end_step(character, current_state, number, TOKEN_DOUBLE, result_token);
 
         case STATE_FRACTION_UNDERSCORE:
-            if (character == '_')
-            {
-                return false;
-            }
             add_digit_after_underscore(character, number);
             *current_state = STATE_FRACTION;
             return false;
@@ -690,20 +746,26 @@ static bool exponent_state_step(int character, ScannerState *current_state, Toke
                 *current_state = STATE_NUMBER_SUFFIX;
                 return false;
             }
+            if (is_word_char(character))
+            {
+                lexical_error(current_line, character);
+                return false;
+            }
             ungetc(character, stdin);
             *result_token = make_number_token(number, TOKEN_DOUBLE);
             return true;
 
         case STATE_EXP_UNDERSCORE:
-            if (character == '_')
-            {
-                return false;
-            }
             add_digit_after_underscore(character, number);
             *current_state = STATE_EXP_DIGITS;
             return false;
 
         case STATE_NUMBER_SUFFIX:
+            if (is_word_char(character))
+            {
+                lexical_error(current_line, character);
+                return false;
+            }
             ungetc(character, stdin);
             *result_token = make_number_token(number, TOKEN_DOUBLE);
             return true;
@@ -758,8 +820,8 @@ static bool string_state_step(int character, ScannerState *current_state, TokenT
         case STATE_STRING:
             if (character == EOF || character == '\n')
             {
-                fprintf(stderr, "Lexical error, line %d: unclosed string\n", current_line);
-                exit(1);
+                raise_error(TOKEN_LEX_ERROR, current_line, "unclosed string");
+                return false;
             }
             if (character == '"')
             {
@@ -820,8 +882,8 @@ static bool read_inside_triple_quotes(int next_character, ScannerState *current_
     {
         if (next_character == EOF)
         {
-            fprintf(stderr, "Lexical error, line %d: unclosed string\n", current_line);
-            exit(1);
+            raise_error(TOKEN_LEX_ERROR, current_line, "unclosed string");
+            return false;
         }
         if (next_character == '\n')
         {
@@ -895,7 +957,7 @@ Token peek_token(void)
 }
 
 
-Token get_token(void)
+static Token scan_next_token(void)
 {
     if (peek_depth > 0) {
         return peek_stack[--peek_depth];
@@ -914,6 +976,10 @@ Token get_token(void)
 
     for (;;)
     {
+        if (scanner_failed)
+        {
+            goto fail;
+        }
         if (block_end_count > 0)
         {
             block_end_count--;
@@ -937,6 +1003,10 @@ Token get_token(void)
 
             main_is_next = false;
             allocate_word(&main_name);
+            if (scanner_failed)
+            {
+                continue;
+            }
             strcpy(main_name.text, "main");
             return make_word_token(main_name.text);
         }
@@ -971,7 +1041,8 @@ Token get_token(void)
                 {
                     return make_token(TOKEN_OPERATOR_NOT_EQUAL, current_line);
                 }
-                return lexical_error(current_line, '!');
+                lexical_error(current_line, '!');
+                continue;
             case STATE_WORD:
                 if (is_word_char(character))
                 {
@@ -979,7 +1050,15 @@ Token get_token(void)
                     continue;
                 }
                 ungetc(character, stdin);
-                return make_word_token(word.text);
+                {
+                    Token word_token = make_word_token(word.text);
+
+                    if (scanner_failed)
+                    {
+                        continue;
+                    }
+                    return word_token;
+                }
             case STATE_ZERO:
             case STATE_ZERO_UNDERSCORE:
             case STATE_ZERO_DIGITS:
@@ -989,7 +1068,11 @@ Token get_token(void)
             case STATE_ZERO_NONZERO:
             case STATE_ZERO_NONZERO_UNDERSCORE:
                 if (integer_state_step(character, &state, &number, &token))
-                {
+                {   
+                    if (scanner_failed)
+                    {
+                        continue;
+                    }
                     return token;
                 }
                 continue;
@@ -998,6 +1081,10 @@ Token get_token(void)
             case STATE_FRACTION_UNDERSCORE:
                 if (fraction_state_step(character, &state, &number, &token))
                 {
+                    if (scanner_failed)
+                    {
+                        continue;
+                    }
                     return token;
                 }
                 continue;
@@ -1007,14 +1094,22 @@ Token get_token(void)
             case STATE_EXP_UNDERSCORE:
             case STATE_NUMBER_SUFFIX:
                 if (exponent_state_step(character, &state, &number, &token))
-                {
+                {   
+                    if (scanner_failed)
+                    {
+                        continue;
+                    }
                     return token;
                 }
                 continue;
             case STATE_STRING:
             case STATE_STRING_ESCAPE:
                 if (string_state_step(character, &state, &string_text, &token))
-                {
+                {   
+                    if (scanner_failed)
+                    {
+                        continue;
+                    }
                     return token;
                 }
                 continue;
@@ -1022,6 +1117,10 @@ Token get_token(void)
             case STATE_QUOTE2:
                 if (read_after_opening_quote(character, &state, &string_text, &token))
                 {
+                    if (scanner_failed)
+                    {
+                        continue;
+                    }
                     return token;
                 }
                 continue;
@@ -1031,6 +1130,10 @@ Token get_token(void)
             case STATE_TRIPLE_QUOTE3:
                 if (read_inside_triple_quotes(character, &state, &string_text, &token))
                 {
+                    if (scanner_failed)
+                    {
+                        continue;
+                    }
                     return token;
                 }
                 continue;
@@ -1066,8 +1169,8 @@ Token get_token(void)
             case STATE_BLOCK_COMMENT:
                 if (character == EOF)
                 {
-                    fprintf(stderr, "Lexical error, line %d: unclosed comment\n", comment_start_line);
-                    exit(1);
+                    raise_error(TOKEN_LEX_ERROR, comment_start_line, "unclosed comment");
+                    continue;
                 }
                 if (character == '/')
                 {
@@ -1129,7 +1232,15 @@ Token get_token(void)
                     continue;
                 }
                 ungetc(character, stdin);
-                return read_token('.');
+                {
+                    Token dot_token = read_token('.');
+
+                    if (scanner_failed)
+                    {
+                        continue;
+                    }
+                    return dot_token;
+                }
             case STATE_ANNOTATION:
                 if (character != 'm')
                 {
@@ -1162,6 +1273,7 @@ Token get_token(void)
                 if (is_word_char(character))
                 {
                     lexical_error(current_line, '@');
+                    continue;
                 }
                 ungetc(character, stdin);
                 line_is_empty = false;
@@ -1176,8 +1288,8 @@ Token get_token(void)
         {
             if (character != '\n' && character != EOF)
             {
-                fprintf(stderr, "Lexical error, line %d: token after multi-line comment\n", current_line);
-                exit(1);
+                raise_error(TOKEN_LEX_ERROR, current_line, "token after multi-line comment");
+                continue;
             }
             line_end_required = false;
         }
@@ -1310,8 +1422,73 @@ Token get_token(void)
                 state = STATE_EXCLAMATION;
                 break;
             default:
-                return read_token(character);
+            {
+                Token read = read_token(character);
+
+                if (scanner_failed)
+                {
+                    continue;
+                }
+                return read;
+            }
         }
         line_is_empty = false;
+        
+     }
+
+
+fail:
+    free(word.text);
+    free(number.text);
+    free(string_text.text);
+    return scanner_error_token;
+}
+
+
+
+// Returns the next token, first the token saved by peek_token.
+Token get_token(void)
+{
+    if (has_peeked_token)
+    {
+        has_peeked_token = false;
+        return peeked_token;
     }
+    return scan_next_token();
+}
+
+
+
+// Returns the next token without consuming it.
+Token peek_token(void)
+{
+    if (!has_peeked_token)
+    {
+        peeked_token = scan_next_token();
+        has_peeked_token = true;
+    }
+    return peeked_token;
+}
+
+
+
+// Resets the scanner state before parsing a new program.
+void scanner_reset(void)
+{
+    block_end_count = 0;
+    block_start = false;
+    current_depth = 1;
+    current_line = 1;
+    string_start_line = 1;
+    open_paren_depth = 0;
+    line_is_empty = true;
+    line_start_spaces = 0;
+    line_start_has_tab = false;
+    logical_line_spaces = 0;
+    is_first_char_on_line = true;
+    line_end_required = false;
+    divide_is_next = false;
+    main_is_next = false;
+    scanner_failed = false;
+    has_peeked_token = false;
 }

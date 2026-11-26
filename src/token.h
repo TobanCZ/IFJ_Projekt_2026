@@ -61,6 +61,11 @@ typedef enum
     TOKEN_BLOCK_START,
     TOKEN_BLOCK_END,
 
+    // Errors.
+    TOKEN_LEX_ERROR,
+    TOKEN_SYNTAX_ERROR,
+    TOKEN_INTERNAL_ERROR,
+
     // End of input.
     TOKEN_EOF
 } TokenType;
