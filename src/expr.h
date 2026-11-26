@@ -1,6 +1,8 @@
 /*
     Implementace překladače imperativního jazyka IFJ26.
 */
+#include "symtable.h"
+
 
 typedef enum 
 {

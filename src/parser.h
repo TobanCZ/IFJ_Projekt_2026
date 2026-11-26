@@ -16,9 +16,19 @@
 
 // hlavicka pro syntakticky analyzator
 #include "token.h"
+#include "symtable.h"
+
+extern SymtableStack stack;
+
+typedef enum {
+    PASS_HEADERS, //hlavicky funkci do tabulky
+    PASS_INFER,   //funkce bez typu otypuje
+    PASS_FULL     //celej pruchod
+} ParsePass;
 
 int parse();
 
 extern Token current_token;
 void next_token(void);
 Token peek_token(void);
+int token_type_to_data_type(TokenType token_type);

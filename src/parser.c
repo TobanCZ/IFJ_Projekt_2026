@@ -14,11 +14,11 @@
 
 int add_builtins_functions(Symtable *table);
 
-int parse_program(bool first_pass);
-int parse_func_def(bool first_pass);
+int parse_program(ParsePass pass);
+int parse_func_def(ParsePass pass);
 
-int parse_expr_or_call();
-int parse_block();
+int parse_expr_or_call(DataType *out_type);
+int parse_block(DataType *out_type);
 
 int parse_statement();
 
@@ -31,11 +31,12 @@ int parse_while();
 int parse_expr();
 
 static Symtable table; //funkce
-static SymtableStack stack;  //promenne a parametry
+SymtableStack stack;  //promenne a parametry
 
 Token current_token;
 bool has_main = false;
 int current_scope = 0;
+Symbol *current_function = NULL;
 
 //Pro moznost 2 pruchodu 
 Token* tokens = NULL;
@@ -43,7 +44,7 @@ static int token_count = 0;
 static int token_index = 0;
 
 void free_all_tokens(void) {
-    for (size_t i = 0; i < token_count; i++) {
+    for (int i = 0; i < token_count; i++) {
         free(tokens[i].value);
     }
     free(tokens);
@@ -112,12 +113,16 @@ int expect_token_and_attr(TokenType expected_token, char* expected_attr) {
 int token_type_to_data_type(TokenType token_type) {
     switch (token_type) {
         case TOKEN_KW_INT:
+        case TOKEN_INT:
             return TYPE_INT;
         case TOKEN_KW_DOUBLE:
+        case TOKEN_DOUBLE:
             return TYPE_DOUBLE;
         case TOKEN_KW_STRING:
+        case TOKEN_STRING:
             return TYPE_STRING;
         case TOKEN_KW_UNIT:
+        case TOKEN_PUNCTUATION_LEFT_PAREN:
             return TYPE_UNIT;
         default:
             return TYPE_UNKNOWN;
@@ -143,9 +148,10 @@ int parse() {
         symtable_stack_destroy(&stack);
         return res;
     }
+    //prvni
     token_index = 0;
-    //prvni pruchod, nacteni funkci
-    res = parse_program(true);
+    has_main = false;
+    res = parse_program(PASS_HEADERS);
     if(res != SYNTAX_OK) {
         free_all_tokens();
         symtable_destroy(&table);
@@ -156,7 +162,18 @@ int parse() {
     //druhy pruchod
     token_index = 0;
     has_main = false;
-    res = parse_program(false);
+    res = parse_program(PASS_INFER);
+    if(res != SYNTAX_OK) {
+        free_all_tokens();
+        symtable_destroy(&table);
+        symtable_stack_destroy(&stack);
+        return res;
+    }
+
+    //treti pruchod
+    token_index = 0;
+    has_main = false;
+    res = parse_program(PASS_FULL);
 
     free_all_tokens();
     symtable_destroy(&table);
@@ -299,7 +316,7 @@ int add_builtins_functions(Symtable *table) {
     return OK;
 }
 
-int parse_program(bool first_pass){
+int parse_program(ParsePass pass){
     // Kontrola importu ifj26 na zacatku programu
     next_token();
     if (expect_token(TOKEN_KW_IMPORT) != SYNTAX_OK) 
@@ -319,7 +336,11 @@ int parse_program(bool first_pass){
 
     //Do konce souboru
     while(current_token.type != TOKEN_EOF) {
-        int res = parse_func_def(first_pass);
+        if (current_token.type == TOKEN_EOL) {
+            next_token();
+            continue;
+        }
+        int res = parse_func_def(pass);
         if (res != SYNTAX_OK)
             return res;
     }
@@ -393,20 +414,52 @@ int parse_func_params(DataType *parameterTypes, int *param_counter) {
 }
 
 int parse_func_body(){
+    DataType ret_type = TYPE_UNKNOWN;
+
     //blok nebo jednoratkovej vyraz;
     if (current_token.type == TOKEN_EOL) {
         next_token();
-        return parse_block();
+        int res = parse_block(&ret_type);
+        if (res != SYNTAX_OK)
+            return res;
+    } 
+    else {
+        int res = parse_expr_or_call(&ret_type);
+        if (res != SYNTAX_OK)
+            return res;
+
+        if (current_token.type == TOKEN_EOL) {
+            next_token();
+        } 
+        else if (current_token.type != TOKEN_EOF) {
+            return SYNTAX_ERROR;
+        }
     }
 
-    int res = parse_expr_or_call();
-    if (res != SYNTAX_OK) return res;
 
-    if (current_token.type == TOKEN_EOL) {
-        next_token();
-    } else if (current_token.type != TOKEN_EOF) {
-        return SYNTAX_ERROR;
+    if(ret_type == TYPE_BOOL) 
+        return SEM_ERROR_TYPE_MISMATCH;
+
+    //kontrola navrat typu
+    if (current_function != NULL) {
+        if (current_function->symbolType == TYPE_UNKNOWN || current_function->symbolType == TYPE_ANY) {
+            if (ret_type == TYPE_UNKNOWN) {
+                return SEM_ERROR_TYPE_MISMATCH;
+            }
+            current_function->symbolType = ret_type;
+        } 
+        else if (current_function->symbolType != TYPE_UNIT && ret_type != TYPE_NEVER) {
+            if (ret_type == TYPE_UNKNOWN) {
+                return SEM_ERROR_TYPE_MISMATCH;
+            }
+            DataType expected = current_function->symbolType;
+            bool valid = (expected == ret_type) || (expected == TYPE_DOUBLE && ret_type == TYPE_INT);
+            if (!valid) {
+                return SEM_ERROR_TYPE_MISMATCH;
+            }
+        }
     }
+
     return SYNTAX_OK;
 }
 
@@ -424,7 +477,10 @@ int skip_func_body(){
             else if (current_token.type == TOKEN_BLOCK_END) depth--;
             next_token();
         } while (depth > 0 && current_token.type != TOKEN_EOF);
-        return (depth == 0) ? SYNTAX_OK : SYNTAX_ERROR;
+        if(depth != 0) 
+            return SYNTAX_ERROR;
+        else
+            return SYNTAX_OK;
     }
 
     //jednoradkove 
@@ -437,7 +493,7 @@ int skip_func_body(){
     return SYNTAX_OK;
 }
 
-int parse_func_def(bool first_pass) {
+int parse_func_def(ParsePass pass) {
     //Kontrola main funkce
     bool is_main = false;
     if (current_token.type == TOKEN_PUNCTUATION_AT) {
@@ -462,7 +518,7 @@ int parse_func_def(bool first_pass) {
         SYNTAX_ERROR;
 
     //duplikat jmena
-    if (first_pass && symtable_find(&table, current_token.value) != NULL) 
+    if (pass == PASS_HEADERS && symtable_find(&table, current_token.value) != NULL) 
         return SEM_ERROR_REDEFINITION;
     char *func_name = copy_str(current_token.value);
     if (!func_name) return INTERNAL_ERROR;
@@ -517,7 +573,8 @@ int parse_func_def(bool first_pass) {
     
     //ulozeni funkce, volani tela
     if (res == SYNTAX_OK) {
-        if(first_pass){
+        //prvnvi pruchod
+        if (pass == PASS_HEADERS) {
             Symbol function;
             function.name = func_name;
             function.symbolType = token_type_to_data_type(ret_type);
@@ -525,26 +582,34 @@ int parse_func_def(bool first_pass) {
             function.isFunction = true;
             function.paramCount = param_count;
             function.isMutable = false;
-            if(param_count > 0)
-                function.parameterTypes = param_types;
-            else
-                function.parameterTypes = NULL;
+            function.parameterTypes = (param_count > 0) ? param_types : NULL;
 
             symtable_insert(&table, function.name, function);
-
             res = skip_func_body();
-        }
-        else 
+        }//druhy pruchod
+        else if (pass == PASS_INFER) {
+            if (ret_type == -1) {
+                current_function = symtable_find(&table, func_name);
+                res = parse_func_body();
+                current_function = NULL;
+            } else {
+                res = skip_func_body();
+            }
+        } 
+        //treti pruchod
+        else {
+            current_function = symtable_find(&table, func_name);
             res = parse_func_body();
+            current_function = NULL;
+        }
     }
-
     free(func_name); 
     symtable_stack_pop(&stack);
     current_scope--;
     return res;
 }
 
-int parse_block() {
+int parse_block(DataType *out_type) {
     //Zacatek bloku
     if (expect_token(TOKEN_BLOCK_START) != SYNTAX_OK) 
         return SYNTAX_ERROR;
@@ -553,63 +618,93 @@ int parse_block() {
     if (current_token.type == TOKEN_BLOCK_END || current_token.type == TOKEN_EOF)
         return SYNTAX_ERROR;
 
+
+    //navratova hodnota pro posledni prikaz v bloku
+    DataType last_type = TYPE_UNIT;
+    bool has_statement = false;
     //Do konce bloku nebo souboru
     while (current_token.type != TOKEN_BLOCK_END && current_token.type != TOKEN_EOF) {
-        int res = parse_statement();
+        if (current_token.type == TOKEN_EOL) {
+            next_token();
+            continue;
+        }
+        has_statement = true;
+        int res = parse_statement(&last_type);
         if (res != SYNTAX_OK) {
             return res;
         }
     }
 
+    if (!has_statement)
+        return SYNTAX_ERROR;
+
     //konec bloku
     if (expect_token(TOKEN_BLOCK_END) != SYNTAX_OK)
         return SYNTAX_ERROR;
 
+    if (out_type != NULL) {
+        *out_type = last_type;
+    }
     return SYNTAX_OK;
 }
 
-int parse_expr_or_call() {
+int parse_expr_or_call(DataType *out_type) {
     if (current_token.type == TOKEN_IDENT) {
         Token next = peek_token();
         if (next.type == TOKEN_PUNCTUATION_LEFT_PAREN) {
-            return parse_call();
+            return parse_call(out_type);
         }
     }
-    return parse_expr();
+    return parse_expr(out_type);
 }
 
-int parse_statement() {
-    //Blokove prikazy
-    if (current_token.type == TOKEN_KW_IF)
-        return parse_if();
+int parse_statement(DataType *out_type) {
+    DataType statement_type = TYPE_UNIT;
 
-    if (current_token.type == TOKEN_KW_WHILE)
-        return parse_while();
+    //Blokove prikazy
+    if (current_token.type == TOKEN_KW_IF) {
+        int res = parse_if(&statement_type);
+        if (res == SYNTAX_OK && out_type != NULL) {
+            *out_type = statement_type;
+        }
+        return res;
+    }
+
+    if (current_token.type == TOKEN_KW_WHILE) {
+        int res = parse_while();
+        if (res == SYNTAX_OK && out_type != NULL) {
+            *out_type = TYPE_UNIT; // while vzdu uint
+        }
+        return res;
+    }
 
     //Jednoradkove
     int res = SYNTAX_ERROR;
 
     if (current_token.type == TOKEN_KW_VAL || current_token.type == TOKEN_KW_VAR) {
         res = parse_def();
+        statement_type = TYPE_UNIT;
     } 
     else if (current_token.type == TOKEN_KW_RETURN) {
         res = parse_return();
+        statement_type = TYPE_NEVER;
     } 
     else if (current_token.type == TOKEN_IDENT) {
         // prirazeni nebo funkce
         Token next = peek_token();
         if (next.type == TOKEN_OPERATOR_ASSIGN) {
             res = parse_assign();
+            statement_type = TYPE_UNIT;
         } 
         else if (next.type == TOKEN_PUNCTUATION_LEFT_PAREN) {
-            res = parse_call();
+            res = parse_call(&statement_type);
         } 
         else {
-            res = parse_expr();
+            res = parse_expr(&statement_type);
         }
     } 
     else if (current_token.type == TOKEN_PUNCTUATION_LEFT_PAREN || current_token.type == TOKEN_OPERATOR_MINUS || current_token.type == TOKEN_INT || current_token.type == TOKEN_DOUBLE || current_token.type == TOKEN_STRING ||current_token.type == TOKEN_KW_UNIT) {
-        res = parse_expr();
+        res = parse_expr(&statement_type);
     } 
     else {
         return SYNTAX_ERROR;
@@ -623,6 +718,10 @@ int parse_statement() {
         next_token();
     } else if (current_token.type != TOKEN_BLOCK_END && current_token.type != TOKEN_EOF) {
         return SYNTAX_ERROR;
+    }
+
+    if (out_type != NULL) {
+        *out_type = statement_type;
     }
 
     return SYNTAX_OK;
@@ -665,9 +764,28 @@ int parse_def() {
         return SYNTAX_ERROR;
     }
 
-    int res = parse_expr_or_call();
+    DataType expr_type = TYPE_UNKNOWN;
+    int res = parse_expr_or_call(&expr_type);
 
     if(res == SYNTAX_OK) {
+        //Nemuze byt vyraz
+        if (expr_type == TYPE_BOOL) {
+            free(name);
+            return SEM_ERROR_TYPE_MISMATCH;
+        }
+
+        if (data_type == TYPE_ANY) {
+            if (expr_type != TYPE_UNKNOWN) {
+                data_type = expr_type;
+            }
+        } else if (expr_type != TYPE_UNKNOWN) {;
+            bool valid = (data_type == (int)expr_type) || (data_type == TYPE_DOUBLE && expr_type == TYPE_INT);
+            if (!valid) {
+                free(name);
+                return SEM_ERROR_TYPE_MISMATCH;
+            }
+        }
+
         Symbol symbol;
         symbol.name = name;
         symbol.symbolType = data_type;
@@ -690,21 +808,45 @@ int parse_assign() {
         return SYNTAX_ERROR;
     Symbol *symbol = symtable_stack_find(&stack, current_token.value);
     if (symbol == NULL) {
-        return SEM_ERROR_UNDEFINED;
+        symbol = symtable_find(&table, current_token.value);
     }
-    if(!symbol->isMutable) {
-        return SEM_ERROR_REDEFINITION;
-    }
+
     next_token();
 
     //=
     if(expect_token(TOKEN_OPERATOR_ASSIGN) != SYNTAX_OK)
         return SYNTAX_ERROR;
 
-    return parse_expr_or_call();
+    DataType expr_type = TYPE_UNKNOWN;
+    int res = parse_expr_or_call(&expr_type);
+    if(res != SYNTAX_OK) 
+        return res;
+
+    if (symbol == NULL) {
+        return SEM_ERROR_UNDEFINED;
+    }
+    if(!symbol->isMutable) {
+        return SEM_ERROR_INVALID_WRITE;
+    }
+    //Nemuze byt vyraz
+    if (expr_type == TYPE_BOOL) 
+        return SEM_ERROR_TYPE_MISMATCH;
+
+    if (symbol->symbolType == TYPE_ANY) {
+        if (expr_type != TYPE_UNKNOWN) {
+            symbol->symbolType = expr_type;
+        }
+    } 
+    else if (expr_type != TYPE_UNKNOWN) {
+        bool valid = (symbol->symbolType == expr_type) || (symbol->symbolType == TYPE_DOUBLE && expr_type == TYPE_INT);
+        if (!valid)
+            return SEM_ERROR_TYPE_MISMATCH;
+    }
+
+    return res;
 }
 
-int parse_call() {
+int parse_call(DataType *out_type) {
     //jmeno
     if(current_token.type != TOKEN_IDENT)
         return SYNTAX_ERROR;
@@ -779,6 +921,11 @@ int parse_call() {
         return SYNTAX_ERROR;
     }
 
+    //rekurze bez typu
+    if (function != NULL && function->symbolType == TYPE_UNKNOWN) {
+        return SEM_ERROR_TYPE_MISMATCH;
+    }
+
     if(function == NULL || undefined_param) 
         return SEM_ERROR_UNDEFINED;
     if(param_count != function->paramCount) 
@@ -800,31 +947,63 @@ int parse_call() {
         if (!valid) 
             return SEM_ERROR_INVALID_ARGUMENT_COUNT;
     }
-
-    return SYNTAX_OK;
-}
-
-int parse_return() {
-    //return
-    if(expect_token(TOKEN_KW_RETURN) != SYNTAX_OK)
-        return SYNTAX_ERROR;
-
-    if (current_token.type != TOKEN_EOL && current_token.type != TOKEN_PUNCTUATION_SEMICOLON &&
-        current_token.type != TOKEN_BLOCK_END && current_token.type != TOKEN_EOF) {
-        if (parse_expr_or_call() != SYNTAX_OK) {
-            return SYNTAX_ERROR;
-        }
+    if (out_type != NULL) {
+        *out_type = function->symbolType;
     }
     return SYNTAX_OK;
 }
 
-int parse_if() {
+int parse_return() {
+    // return
+    if (expect_token(TOKEN_KW_RETURN) != SYNTAX_OK)
+        return SYNTAX_ERROR;    
+
+    DataType ret_type = TYPE_UNIT;
+
+    if (current_token.type != TOKEN_EOL &&
+        current_token.type != TOKEN_PUNCTUATION_SEMICOLON &&
+        current_token.type != TOKEN_BLOCK_END &&
+        current_token.type != TOKEN_EOF) {
+        int res = parse_expr_or_call(&ret_type);
+        if (res != SYNTAX_OK) {
+            return res;
+        }
+    }
+
+    //funkce bez typu nemuze mit return
+    if (current_function != NULL && current_function->symbolType == TYPE_UNKNOWN) {
+        return SEM_ERROR_TYPE_MISMATCH;
+    }
+
+    //bool nejde vratit
+    if (ret_type == TYPE_BOOL) {
+        return SEM_ERROR_TYPE_MISMATCH;
+    }
+
+    if (ret_type == TYPE_UNIT && current_function != NULL && current_function->symbolType != TYPE_UNIT) {
+        return SEM_ERROR_OTHER;
+    }
+
+    //navratovy typ funkce
+    if (current_function != NULL && current_function->symbolType != TYPE_UNKNOWN && ret_type != TYPE_UNKNOWN) {
+        DataType expected = current_function->symbolType;
+        bool valid = (expected == ret_type) || (expected == TYPE_DOUBLE && ret_type == TYPE_INT);
+        if (!valid) {
+            return SEM_ERROR_TYPE_MISMATCH;
+        }
+    }
+
+    return SYNTAX_OK;
+}
+
+int parse_if(DataType *out_type) {
     //if
     if(expect_token(TOKEN_KW_IF) != SYNTAX_OK)
         return SYNTAX_ERROR;
 
     //vyraz
-    int res = parse_expr();
+    DataType condition_type = TYPE_UNKNOWN;
+    int res = parse_expr(&condition_type);
     if (res != SYNTAX_OK)
         return res;
 
@@ -840,7 +1019,8 @@ int parse_if() {
     }
     current_scope++;
 
-    res = parse_block();
+    DataType then_type = TYPE_UNIT;
+    res = parse_block(&then_type);
 
     symtable_stack_pop(&stack);
     current_scope--;
@@ -860,11 +1040,34 @@ int parse_if() {
     }
     current_scope++;
 
-    res = parse_block();
+    DataType else_type = TYPE_UNIT;
+    res = parse_block(&else_type);
 
     symtable_stack_pop(&stack);
     current_scope--;
-    return res;
+    if (res != SYNTAX_OK) {
+        return res;
+    }
+    if(condition_type != TYPE_BOOL) {
+        return SEM_ERROR_TYPE_MISMATCH;
+    }
+
+    if (out_type != NULL) {
+        if (then_type == TYPE_NEVER && else_type == TYPE_NEVER) {
+            *out_type = TYPE_NEVER;
+        } 
+        else if (then_type == TYPE_UNIT && else_type == TYPE_UNIT) {
+            *out_type = TYPE_UNIT;
+        } 
+        else if ((then_type == TYPE_NEVER && else_type == TYPE_UNIT) || (then_type == TYPE_UNIT && else_type == TYPE_NEVER)) {
+            *out_type = TYPE_UNIT;
+        } 
+        else {
+            *out_type = TYPE_UNKNOWN;
+        }
+    }
+
+    return SYNTAX_OK;
 }
 
 int parse_while() {
@@ -873,7 +1076,8 @@ int parse_while() {
         return SYNTAX_ERROR;
 
     //vyraz
-    int res = parse_expr();
+    DataType condition_type = TYPE_UNKNOWN;
+    int res = parse_expr(&condition_type);
     if (res != SYNTAX_OK)
         return res;
     //do
@@ -887,9 +1091,16 @@ int parse_while() {
     }
     current_scope++;
 
-    res = parse_block();
+    res = parse_block(NULL);
 
     symtable_stack_pop(&stack);
     current_scope--;
-    return res;
+    if(res != SYNTAX_OK) {
+        return res;
+    }
+    if(condition_type != TYPE_BOOL) {
+        return SEM_ERROR_TYPE_MISMATCH;
+    }
+
+    return SYNTAX_OK;
 }
