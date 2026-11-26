@@ -11,7 +11,6 @@
 
 // Returning the next token.
 Token get_token(void);
-Token peek_token(void);
 void scanner_reset(void);
 
 

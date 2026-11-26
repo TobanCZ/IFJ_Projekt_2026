@@ -6,7 +6,7 @@
 #define SYNTAX_OK                           0
 #define SEM_OK                              0
 #define SYNTAX_ERROR                        2
-#define SEM_ERROR_NON_DEFINE                3  //nedefinovana promenna, funkce nebo @main
+#define SEM_ERROR_UNDEFINED                 3  //nedefinovana promenna, funkce nebo @main
 #define SEM_ERROR_REDEFINITION              4  //predefinovana promenna, funkce
 #define SEM_ERROR_INVALID_ARGUMENT_COUNT    5  //nespravny pocet argumentu, nepovelen parametry pro @main
 #define SEM_ERROR_TYPE_MISMATCH             6  //nespravny typova kompatibilita
@@ -21,3 +21,4 @@ int parse();
 
 extern Token current_token;
 void next_token(void);
+Token peek_token(void);

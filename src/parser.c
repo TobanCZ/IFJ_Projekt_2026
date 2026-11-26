@@ -14,8 +14,8 @@
 
 int add_builtins_functions(Symtable *table);
 
-int parse_program();
-int parse_func_def();
+int parse_program(bool first_pass);
+int parse_func_def(bool first_pass);
 
 int parse_expr_or_call();
 int parse_block();
@@ -30,19 +30,67 @@ int parse_if();
 int parse_while();
 int parse_expr();
 
-Symtable *table; //funkce
-SymtableStack *stack;  //promenne a parametry
+static Symtable table; //funkce
+static SymtableStack stack;  //promenne a parametry
 
 Token current_token;
 bool has_main = false;
 int current_scope = 0;
 
-void next_token() {
-    if (current_token.value != NULL) {
-        free(current_token.value);
-        current_token.value = NULL;
+//Pro moznost 2 pruchodu 
+Token* tokens = NULL;
+static int token_count = 0;
+static int token_index = 0;
+
+void free_all_tokens(void) {
+    for (size_t i = 0; i < token_count; i++) {
+        free(tokens[i].value);
     }
-    current_token = get_token();
+    free(tokens);
+    tokens = NULL;
+    token_count = 0;
+    token_index = 0;
+    current_token.value = NULL;
+}
+
+int load_all_tokens(){
+    //pomoci dynamickeho pole
+    int capacity = 128;
+    tokens = malloc(capacity * sizeof(Token));
+    if (tokens == NULL) 
+        return INTERNAL_ERROR;
+    while(true) {
+        if(token_count >= capacity) {
+            capacity *= 2;
+            Token *new_tokens = realloc(tokens, capacity * sizeof(Token));
+            if (new_tokens == NULL) {
+                free_all_tokens();
+                return INTERNAL_ERROR;
+            }
+            tokens = new_tokens;
+        }
+        Token current = get_token();
+        tokens[token_count++] = current;
+        if (current.type == TOKEN_EOF) 
+            break;
+    }
+    token_index = 0;
+    return OK;
+}
+
+void next_token() {
+    if (token_index < token_count) {
+        current_token = tokens[token_index++];
+    } else {
+        current_token = tokens[token_count - 1]; 
+    }
+}
+
+Token peek_token(void) {
+    if (token_index < token_count) {
+        return tokens[token_index];
+    }
+    return tokens[token_count - 1];
 }
 
 int expect_token(TokenType expected_token) {
@@ -72,22 +120,47 @@ int token_type_to_data_type(TokenType token_type) {
         case TOKEN_KW_UNIT:
             return TYPE_UNIT;
         default:
-            return -1;
+            return TYPE_UNKNOWN;
     }
 }
 
 
 int parse() {
     has_main = false;
+    current_scope = 0;
     scanner_reset();
+    symtable_init(&table);
+    symtable_stack_init(&stack);
+    if (add_builtins_functions(&table) != OK) {
+        symtable_destroy(&table);
+        symtable_stack_destroy(&stack);
+        return INTERNAL_ERROR;
+    }
 
-    symtable_init(table);
-    symtable_stack_init(stack);
+    int res = load_all_tokens();
+    if (res != OK) {
+        symtable_destroy(&table);
+        symtable_stack_destroy(&stack);
+        return res;
+    }
+    token_index = 0;
+    //prvni pruchod, nacteni funkci
+    res = parse_program(true);
+    if(res != SYNTAX_OK) {
+        free_all_tokens();
+        symtable_destroy(&table);
+        symtable_stack_destroy(&stack);
+        return res;
+    }
 
-    int res = parse_program();
+    //druhy pruchod
+    token_index = 0;
+    has_main = false;
+    res = parse_program(false);
 
-    symtable_destroy(table);
-    symtable_stack_destroy(stack);
+    free_all_tokens();
+    symtable_destroy(&table);
+    symtable_stack_destroy(&stack);
     return res;
 }
 
@@ -226,7 +299,7 @@ int add_builtins_functions(Symtable *table) {
     return OK;
 }
 
-int parse_program(){
+int parse_program(bool first_pass){
     // Kontrola importu ifj26 na zacatku programu
     next_token();
     if (expect_token(TOKEN_KW_IMPORT) != SYNTAX_OK) 
@@ -246,13 +319,13 @@ int parse_program(){
 
     //Do konce souboru
     while(current_token.type != TOKEN_EOF) {
-        int res = parse_func_def();
+        int res = parse_func_def(first_pass);
         if (res != SYNTAX_OK)
             return res;
     }
 
     if (!has_main) 
-        return SEM_ERROR_NON_DEFINE; // chyba 3
+        return SEM_ERROR_UNDEFINED; // chyba 3
 
     return SYNTAX_OK;
 }
@@ -264,7 +337,7 @@ int parse_func_params(DataType *parameterTypes, int *param_counter) {
             return SYNTAX_ERROR;
         
         // kontrola redefinice parametru
-        if(symtable_stack_find_current(stack, current_token.value) != NULL) 
+        if(symtable_stack_find_current(&stack, current_token.value) != NULL) 
             return SEM_ERROR_REDEFINITION;
         
         char *param_name = copy_str(current_token.value);
@@ -301,7 +374,7 @@ int parse_func_params(DataType *parameterTypes, int *param_counter) {
         param.isMutable = false;
         param.paramCount = 0;
         param.parameterTypes = NULL;
-        symtable_stack_insert(stack, param.name, param);
+        symtable_stack_insert(&stack, param.name, param);
         free(param_name);
         next_token();
 
@@ -337,7 +410,34 @@ int parse_func_body(){
     return SYNTAX_OK;
 }
 
-int parse_func_def(){
+//preskoci parsofani body
+int skip_func_body(){
+    if (current_token.type == TOKEN_EOL) {
+        next_token();
+        if (current_token.type != TOKEN_BLOCK_START) {
+            return SYNTAX_ERROR;
+        }
+        //projede vsechny bloky a preskoci je
+        int depth = 0;
+        do {
+            if (current_token.type == TOKEN_BLOCK_START) depth++;
+            else if (current_token.type == TOKEN_BLOCK_END) depth--;
+            next_token();
+        } while (depth > 0 && current_token.type != TOKEN_EOF);
+        return (depth == 0) ? SYNTAX_OK : SYNTAX_ERROR;
+    }
+
+    //jednoradkove 
+    while (current_token.type != TOKEN_EOL && current_token.type != TOKEN_EOF) {
+        next_token();
+    }
+    if (current_token.type == TOKEN_EOL) {
+        next_token();
+    }
+    return SYNTAX_OK;
+}
+
+int parse_func_def(bool first_pass) {
     //Kontrola main funkce
     bool is_main = false;
     if (current_token.type == TOKEN_PUNCTUATION_AT) {
@@ -362,7 +462,7 @@ int parse_func_def(){
         SYNTAX_ERROR;
 
     //duplikat jmena
-    if (symtable_find(table, current_token.value) != NULL) 
+    if (first_pass && symtable_find(&table, current_token.value) != NULL) 
         return SEM_ERROR_REDEFINITION;
     char *func_name = copy_str(current_token.value);
     if (!func_name) return INTERNAL_ERROR;
@@ -375,7 +475,7 @@ int parse_func_def(){
     }
 
     //vlozeni parametru
-    symtable_stack_push(stack);
+    symtable_stack_push(&stack);
     current_scope++;
     DataType param_types[MAX_PARAM_COUNT];
     int param_count = 0;
@@ -410,44 +510,48 @@ int parse_func_def(){
         res = SEM_ERROR_TYPE_MISMATCH;
     
     
+    
     // =
     if(res == SYNTAX_OK && expect_token(TOKEN_OPERATOR_ASSIGN) != SYNTAX_OK) 
         res = SYNTAX_ERROR;
     
     //ulozeni funkce, volani tela
     if (res == SYNTAX_OK) {
-        Symbol function;
-        function.name = func_name;
-        function.symbolType = token_type_to_data_type(ret_type);
-        function.scopeLevel = 0;
-        function.isFunction = true;
-        function.paramCount = param_count;
-        function.isMutable = false;
-        if(param_count > 0)
-            function.parameterTypes = param_types;
-        else
-            function.parameterTypes = NULL;
+        if(first_pass){
+            Symbol function;
+            function.name = func_name;
+            function.symbolType = token_type_to_data_type(ret_type);
+            function.scopeLevel = 0;
+            function.isFunction = true;
+            function.paramCount = param_count;
+            function.isMutable = false;
+            if(param_count > 0)
+                function.parameterTypes = param_types;
+            else
+                function.parameterTypes = NULL;
 
-        symtable_insert(table, function.name, function);
-        res = parse_func_body();
+            symtable_insert(&table, function.name, function);
+
+            res = skip_func_body();
+        }
+        else 
+            res = parse_func_body();
     }
 
     free(func_name); 
-    symtable_stack_pop(stack);
+    symtable_stack_pop(&stack);
     current_scope--;
     return res;
 }
 
 int parse_block() {
     //Zacatek bloku
-    if (expect_token(TOKEN_BLOCK_START) != SYNTAX_OK) {
+    if (expect_token(TOKEN_BLOCK_START) != SYNTAX_OK) 
         return SYNTAX_ERROR;
-    }
 
     // Blok nesmi byt prazdny
-    if (current_token.type == TOKEN_BLOCK_END || current_token.type == TOKEN_EOF) {
+    if (current_token.type == TOKEN_BLOCK_END || current_token.type == TOKEN_EOF)
         return SYNTAX_ERROR;
-    }
 
     //Do konce bloku nebo souboru
     while (current_token.type != TOKEN_BLOCK_END && current_token.type != TOKEN_EOF) {
@@ -458,9 +562,8 @@ int parse_block() {
     }
 
     //konec bloku
-    if (expect_token(TOKEN_BLOCK_END) != SYNTAX_OK) {
+    if (expect_token(TOKEN_BLOCK_END) != SYNTAX_OK)
         return SYNTAX_ERROR;
-    }
 
     return SYNTAX_OK;
 }
@@ -477,12 +580,11 @@ int parse_expr_or_call() {
 
 int parse_statement() {
     //Blokove prikazy
-    if (current_token.type == TOKEN_KW_IF) {
+    if (current_token.type == TOKEN_KW_IF)
         return parse_if();
-    }
-    if (current_token.type == TOKEN_KW_WHILE) {
+
+    if (current_token.type == TOKEN_KW_WHILE)
         return parse_while();
-    }
 
     //Jednoradkove
     int res = SYNTAX_ERROR;
@@ -513,9 +615,8 @@ int parse_statement() {
         return SYNTAX_ERROR;
     }
 
-    if (res != SYNTAX_OK) {
+    if (res != SYNTAX_OK) 
         return res;
-    }
 
     //Oddelovac za jednoradkovym prikazem
     if (current_token.type == TOKEN_EOL || current_token.type == TOKEN_PUNCTUATION_SEMICOLON) {
@@ -528,6 +629,7 @@ int parse_statement() {
 }
 
 int parse_def() {
+    bool is_mutable = (current_token.type == TOKEN_KW_VAR);
     //var nebo val
     if(current_token.type != TOKEN_KW_VAL && current_token.type != TOKEN_KW_VAR) {
         return SYNTAX_ERROR;
@@ -535,50 +637,77 @@ int parse_def() {
     next_token();
 
     //jmeno
-    if(expect_token(TOKEN_IDENT) != SYNTAX_OK) {
+    if(current_token.type != TOKEN_IDENT)
         return SYNTAX_ERROR;
-    }
+    
+    //kontrola duplicity promenne
+    if (symtable_stack_find_current(&stack, current_token.value) != NULL) 
+        return SEM_ERROR_REDEFINITION;
+    char *name = copy_str(current_token.value);
+    if (!name) return INTERNAL_ERROR;
+    next_token();
 
+    int data_type = TYPE_ANY;
     //typ
     if(current_token.type == TOKEN_PUNCTUATION_COLON) {
         next_token();
         if(current_token.type != TOKEN_KW_INT && current_token.type != TOKEN_KW_DOUBLE && current_token.type != TOKEN_KW_STRING && current_token.type != TOKEN_KW_UNIT) {
+            free(name);
             return SYNTAX_ERROR;
         }
+        data_type = token_type_to_data_type(current_token.type);
         next_token();
     }
 
     //=
-    if(expect_token(TOKEN_OPERATOR_ASSIGN) != SYNTAX_OK) {
+    if(expect_token(TOKEN_OPERATOR_ASSIGN) != SYNTAX_OK){
+        free(name);
         return SYNTAX_ERROR;
     }
 
-    return parse_expr_or_call();
+    int res = parse_expr_or_call();
+
+    if(res == SYNTAX_OK) {
+        Symbol symbol;
+        symbol.name = name;
+        symbol.symbolType = data_type;
+        symbol.scopeLevel = current_scope;
+        symbol.isFunction = false;
+        symbol.isMutable = is_mutable;
+        symbol.paramCount = 0;
+        symbol.parameterTypes = NULL;
+        symtable_stack_insert(&stack, symbol.name, symbol);
+    }
+   
+    free(name);
+    return res;
 }
 
 int parse_assign() {
     //jmeno promenne
-    if(expect_token(TOKEN_IDENT) != SYNTAX_OK) {
+
+    if(current_token.type != TOKEN_IDENT) 
         return SYNTAX_ERROR;
+    Symbol *symbol = symtable_stack_find(&stack, current_token.value);
+    if (symbol == NULL) {
+        return SEM_ERROR_UNDEFINED;
     }
+    if(!symbol->isMutable) {
+        return SEM_ERROR_REDEFINITION;
+    }
+    next_token();
 
     //=
-    if(expect_token(TOKEN_OPERATOR_ASSIGN) != SYNTAX_OK) {
+    if(expect_token(TOKEN_OPERATOR_ASSIGN) != SYNTAX_OK)
         return SYNTAX_ERROR;
-    }
 
-    if(parse_expr_or_call() != SYNTAX_OK) {
-        return SYNTAX_ERROR;
-    }
-
-    return SYNTAX_OK;
+    return parse_expr_or_call();
 }
 
 int parse_call() {
     //jmeno
-    if(expect_token(TOKEN_IDENT) != SYNTAX_OK) {
+    if(expect_token(TOKEN_IDENT) != SYNTAX_OK)
         return SYNTAX_ERROR;
-    }
 
     //(
     if(expect_token(TOKEN_PUNCTUATION_LEFT_PAREN) != SYNTAX_OK) {
@@ -621,9 +750,8 @@ int parse_call() {
 
 int parse_return() {
     //return
-    if(expect_token(TOKEN_KW_RETURN) != SYNTAX_OK) {
+    if(expect_token(TOKEN_KW_RETURN) != SYNTAX_OK)
         return SYNTAX_ERROR;
-    }
 
     if (current_token.type != TOKEN_EOL && current_token.type != TOKEN_PUNCTUATION_SEMICOLON &&
         current_token.type != TOKEN_BLOCK_END && current_token.type != TOKEN_EOF) {
@@ -636,58 +764,76 @@ int parse_return() {
 
 int parse_if() {
     //if
-    if(expect_token(TOKEN_KW_IF) != SYNTAX_OK) {
+    if(expect_token(TOKEN_KW_IF) != SYNTAX_OK)
         return SYNTAX_ERROR;
-    }
 
     //vyraz
-    if(parse_expr() != SYNTAX_OK) {
-        return SYNTAX_ERROR;
-    }
+    int res = parse_expr();
+    if (res != SYNTAX_OK)
+        return res;
 
     //then
-    if(expect_token(TOKEN_KW_THEN) != SYNTAX_OK) {
+    if(expect_token(TOKEN_KW_THEN) != SYNTAX_OK) 
         return SYNTAX_ERROR;
-    }
-    if(expect_token(TOKEN_EOL) != SYNTAX_OK) {
+    if(expect_token(TOKEN_EOL) != SYNTAX_OK)
         return SYNTAX_ERROR;
-    }
 
     //blok 
-    if(parse_block() != SYNTAX_OK) {
-        return SYNTAX_ERROR;
+    if (!symtable_stack_push(&stack)) {
+        return INTERNAL_ERROR;
+    }
+    current_scope++;
+
+    res = parse_block();
+
+    symtable_stack_pop(&stack);
+    current_scope--;
+    if(res != SYNTAX_OK) {
+        return res;
     }
 
     //else
-    if(expect_token(TOKEN_KW_ELSE) != SYNTAX_OK) {
+    if(expect_token(TOKEN_KW_ELSE) != SYNTAX_OK)
         return SYNTAX_ERROR;
-    }
-    if(expect_token(TOKEN_EOL) != SYNTAX_OK) {
+    if(expect_token(TOKEN_EOL) != SYNTAX_OK)
         return SYNTAX_ERROR;
-    }
 
     //else blok
-    return parse_block();
+    if (!symtable_stack_push(&stack)) {
+        return INTERNAL_ERROR;
+    }
+    current_scope++;
+
+    res = parse_block();
+
+    symtable_stack_pop(&stack);
+    current_scope--;
+    return res;
 }
 
 int parse_while() {
     //while
-    if(expect_token(TOKEN_KW_WHILE) != SYNTAX_OK) {
+    if(expect_token(TOKEN_KW_WHILE) != SYNTAX_OK)
         return SYNTAX_ERROR;
-    }
 
     //vyraz
-    if(parse_expr() != SYNTAX_OK) {
-        return SYNTAX_ERROR;
-    }
-
+    int res = parse_expr();
+    if (res != SYNTAX_OK)
+        return res;
     //do
-    if(expect_token(TOKEN_KW_DO) != SYNTAX_OK) {
+    if(expect_token(TOKEN_KW_DO) != SYNTAX_OK)
         return SYNTAX_ERROR;
-    }
-    if(expect_token(TOKEN_EOL) != SYNTAX_OK) {
+    if(expect_token(TOKEN_EOL) != SYNTAX_OK)
         return SYNTAX_ERROR;
-    }
 
-    return parse_block();
+    if (!symtable_stack_push(&stack)) {
+        return INTERNAL_ERROR;
+    }
+    current_scope++;
+
+    res = parse_block();
+
+    symtable_stack_pop(&stack);
+    current_scope--;
+    return res;
 }

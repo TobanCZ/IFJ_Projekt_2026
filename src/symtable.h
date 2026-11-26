@@ -14,6 +14,7 @@ typedef enum {
     TYPE_BOOL,   // boolean type
     TYPE_UNIT,   // unit type (void)
     TYPE_ANY,    // any type
+    TYPE_UNKNOWN // unknown type (used for functions returns)
 } DataType;
 
 typedef struct Symbol {

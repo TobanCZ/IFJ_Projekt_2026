@@ -86,7 +86,7 @@ TEST(ProgramHeader, MissingMainFails) {
     const char *code = R"(import ifj26.*
 def helper(x: Int): Int = x + 1
 )";
-    EXPECT_EQ(run_parser(code), SEM_ERROR_NON_DEFINE);
+    EXPECT_EQ(run_parser(code), SEM_ERROR_UNDEFINED);
 }
 
 TEST(ProgramHeader, DuplicateMainFails) {
