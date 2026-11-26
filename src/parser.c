@@ -143,6 +143,10 @@ int parse_func_def(){
             //bud , mezi parametry a nebo musi byt zavorka
             if(current_token.type == TOKEN_PUNCTUATION_COMMA) {
                 next_token();
+                // za , musi byt identifikator
+                if (current_token.type == TOKEN_PUNCTUATION_RIGHT_PAREN) {
+                    return SYNTAX_ERROR;
+                }
             } else if(current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN) {
                 return SYNTAX_ERROR;
             }
