@@ -157,24 +157,6 @@ static const struct
 
 #define KEYWORD_COUNT (sizeof(keywords) / sizeof(keywords[0]))
 
-// Resets the scanner to its initial state.
-void scanner_reset(void) {
-    indent_levels[0] = 0;
-    current_depth = 1;
-    block_end_count = 0;
-    block_start = false;
-    current_line = 1;
-    string_start_line = 1;
-    open_paren_depth = 0;
-    line_is_empty = true;
-    line_start_spaces = 0;
-    line_start_has_tab = false;
-    logical_line_spaces = 0;
-    is_first_char_on_line = true;
-    line_end_required = false;
-    divide_is_next = false;
-}
-
 // Returns a token with the given type and line.
 static Token make_token(TokenType type, int line)
 {
@@ -931,7 +913,7 @@ static bool read_inside_triple_quotes(int next_character, ScannerState *current_
     return true;
 }
 
-Token get_token(void)
+static Token scan_next_token(void)
 {
     int character;
     ScannerState state = STATE_START;
@@ -1430,7 +1412,7 @@ Token get_token(void)
 
 
 // Returns the next token without consuming it.
-Token peek_token(void)
+Token scanner_peek_token(void)
 {
     if (!has_peeked_token)
     {
