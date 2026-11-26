@@ -51,7 +51,7 @@ format:
 
 # Cíl pro rychlé spuštění vašich paměťových testů
 test: build
-	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./$(TARGET) < tests/e2e/test1.scala
+	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./$(TARGET) < test/e2e/test1.scala
 
 CXX = g++
 CXXFLAGS = -std=c++17 -Wall -g -Isrc

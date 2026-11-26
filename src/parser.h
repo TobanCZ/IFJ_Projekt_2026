@@ -2,7 +2,7 @@
     Implementace překladače imperativního jazyka IFJ26.
 */
 
-
+#define OK                                  0 
 #define SYNTAX_OK                           0
 #define SEM_OK                              0
 #define SYNTAX_ERROR                        2

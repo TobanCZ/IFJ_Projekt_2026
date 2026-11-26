@@ -3,10 +3,13 @@
 */
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "parser.h"
 #include "symtable.h"
 #include "scanner.h"
 #include "expr.h"
+
+int add_builtins_functions(Symtable *table);
 
 int parse_program();
 int parse_func_def();
@@ -24,11 +27,18 @@ int parse_if();
 int parse_while();
 int parse_expr();
 
-Symtable *table;
+Symtable *table; //funkce
+SymtableStack *stack;  //promenne a parametry
+
 Token current_token;
 bool has_main = false;
+int current_scope = 0
 
 void next_token() {
+    if (current_token.value != NULL) {
+        free(current_token.value);
+        current_token.value = NULL;
+    }
     current_token = get_token();
 }
 
@@ -49,14 +59,153 @@ int expect_token_and_attr(TokenType expected_token, char* expected_attr) {
 }
 
 
-int parse(Symtable *symtable)
-{
+int parse() {
     has_main = false;
     scanner_reset();
 
-    table = symtable;
+    symtable_init(&table);
+    symtable_stack_init(&stack);
+
     int res = parse_program();
+
+    symtable_destroy(&table);
+    symtable_stack_destroy(&stack);
     return res;
+}
+
+//pridani vestavenych funkci TODO: mozna to dat do funkce protoze se toho dost opakuje
+int add_builtins_functions(Symtable *table) {
+    Symbol function;
+
+    function.name = "print";
+    function.symbolType = TYPE_UNIT;
+    function.scopeLevel = 0;
+    function.isFunction = true;
+    function.parameterTypes = malloc(sizeof(DataType));
+    if(function.parameterTypes == NULL) {
+        return INTERNAL_ERROR;
+    }
+    function.parameterTypes[0] = TYPE_ANY;
+    function.paramCount = 1;
+    function.isMutable = false;
+    symtable_insert(table, "print", function);
+    free(function.parameterTypes);
+
+    function.name = "readLine";
+    function.symbolType = TYPE_STRING;
+    function.scopeLevel = 0;
+    function.isFunction = true;
+    function.parameterTypes = NULL;
+    function.paramCount = 0;
+    function.isMutable = false;
+    symtable_insert(table, "readLine", function);
+
+    function.name = "readInt";
+    function.symbolType = TYPE_INT;
+    function.scopeLevel = 0;
+    function.isFunction = true;
+    function.parameterTypes = NULL;
+    function.paramCount = 0;
+    function.isMutable = false;
+    symtable_insert(table, "readInt", function);
+
+    function.name = "readDouble";
+    function.symbolType = TYPE_DOUBLE;
+    function.scopeLevel = 0;
+    function.isFunction = true;
+    function.parameterTypes = NULL;
+    function.paramCount = 0;
+    function.isMutable = false;
+    symtable_insert(table, "readDouble", function);
+
+    function.name = "toStr";
+    function.symbolType = TYPE_STRING;
+    function.scopeLevel = 0;
+    function.isFunction = true;
+    function.parameterTypes = malloc(sizeof(DataType));
+    if(function.parameterTypes == NULL) {
+        return INTERNAL_ERROR;
+    }
+    function.parameterTypes[0] = TYPE_ANY;
+    function.paramCount = 1;
+    function.isMutable = false;
+    symtable_insert(table, "toStr", function);
+    free(function.parameterTypes);
+
+    function.name = "toInt";
+    function.symbolType = TYPE_INT;
+    function.scopeLevel = 0;
+    function.isFunction = true;
+    function.parameterTypes = malloc(sizeof(DataType));
+    if(function.parameterTypes == NULL) {
+        return INTERNAL_ERROR;
+    }
+    function.parameterTypes[0] = TYPE_DOUBLE;
+    function.paramCount = 1;
+    function.isMutable = false;
+    symtable_insert(table, "toInt", function);
+    free(function.parameterTypes);
+
+    function.name = "strLength";
+    function.symbolType = TYPE_INT;
+    function.scopeLevel = 0;
+    function.isFunction = true;
+    function.parameterTypes = malloc(sizeof(DataType));
+    if(function.parameterTypes == NULL) {
+        return INTERNAL_ERROR;
+    }
+    function.parameterTypes[0] = TYPE_STRING;
+    function.paramCount = 1;
+    function.isMutable = false;
+    symtable_insert(table, "strLength", function);
+    free(function.parameterTypes);
+
+    function.name = "subStr";
+    function.symbolType = TYPE_STRING;
+    function.scopeLevel = 0;
+    function.isFunction = true;
+    function.parameterTypes = malloc(sizeof(DataType)*3);
+    if(function.parameterTypes == NULL) {
+        return INTERNAL_ERROR;
+    }
+    function.parameterTypes[0] = TYPE_STRING;
+    function.parameterTypes[1] = TYPE_INT;
+    function.parameterTypes[2] = TYPE_INT;
+    function.paramCount = 3;
+    function.isMutable = false;
+    symtable_insert(table, "subStr", function);
+    free(function.parameterTypes);
+
+    function.name = "ord";
+    function.symbolType = TYPE_INT;
+    function.scopeLevel = 0;
+    function.isFunction = true;
+    function.parameterTypes = malloc(sizeof(DataType)*2);
+    if(function.parameterTypes == NULL) {
+        return INTERNAL_ERROR;
+    }
+    function.parameterTypes[0] = TYPE_STRING;
+    function.parameterTypes[1] = TYPE_INT;
+    function.paramCount = 2;
+    function.isMutable = false;
+    symtable_insert(table, "ord", function);
+    free(function.parameterTypes);
+
+    function.name = "chr";
+    function.symbolType = TYPE_STRING;
+    function.scopeLevel = 0;
+    function.isFunction = true;
+    function.parameterTypes = malloc(sizeof(DataType));
+    if(function.parameterTypes == NULL) {
+        return INTERNAL_ERROR;
+    }
+    function.parameterTypes[0] = TYPE_INT;
+    function.paramCount = 1;
+    function.isMutable = false;
+    symtable_insert(table, "chr", function);
+    free(function.parameterTypes);
+
+    return OK;
 }
 
 int parse_program(){
