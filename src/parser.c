@@ -706,43 +706,99 @@ int parse_assign() {
 
 int parse_call() {
     //jmeno
-    if(expect_token(TOKEN_IDENT) != SYNTAX_OK)
+    if(current_token.type != TOKEN_IDENT)
         return SYNTAX_ERROR;
+    //kontrola existence
+    Symbol* function = symtable_find(&table, current_token.value);
 
+    next_token();
     //(
     if(expect_token(TOKEN_PUNCTUATION_LEFT_PAREN) != SYNTAX_OK) {
         return SYNTAX_ERROR;
     }
+    int param_count = 0;
+    DataType param_types[MAX_PARAM_COUNT];
+    bool undefined_param = false; //syntax chyby maji prednost
 
     //parametry
     while (current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN && current_token.type != TOKEN_EOF) {
         //vyraz nebo volani
-        if (current_token.type == TOKEN_IDENT || current_token.type == TOKEN_INT || current_token.type == TOKEN_DOUBLE || current_token.type == TOKEN_STRING) {
+        if (current_token.type == TOKEN_IDENT) {
+            Symbol *arg = symtable_stack_find(&stack, current_token.value);
+            if (arg == NULL) {
+                undefined_param = true;
+                param_types[param_count++] = TYPE_UNKNOWN;
+            } else {
+                param_types[param_count++] = arg->symbolType;
+            }
             next_token();
-        } else if (current_token.type == TOKEN_PUNCTUATION_LEFT_PAREN) {
+        } 
+        else if (current_token.type == TOKEN_INT) {
+            param_types[param_count++] = TYPE_INT;
+            next_token();
+        } 
+        else if (current_token.type == TOKEN_DOUBLE) {
+            param_types[param_count++] = TYPE_DOUBLE;
+            next_token();
+        } 
+        else if (current_token.type == TOKEN_STRING) {
+            param_types[param_count++] = TYPE_STRING;
+            next_token();
+        } 
+        else if (current_token.type == TOKEN_PUNCTUATION_LEFT_PAREN) {
             next_token();
             if (expect_token(TOKEN_PUNCTUATION_RIGHT_PAREN) != SYNTAX_OK) return SYNTAX_ERROR;
-        } else {
+            param_types[param_count++] = TYPE_UNIT;
+        } 
+        else {
             return SYNTAX_ERROR;
         }
 
-    if (current_token.type == TOKEN_PUNCTUATION_COMMA) {
-        next_token();
-        //osetreni odradkovani mezi parametry
-        if (current_token.type == TOKEN_EOL) {
+        if (current_token.type == TOKEN_PUNCTUATION_COMMA) {
             next_token();
-            if (current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN) return SYNTAX_ERROR;
-        } else if (current_token.type == TOKEN_PUNCTUATION_RIGHT_PAREN) {
+            //osetreni odradkovani mezi parametry
+            if (current_token.type == TOKEN_EOL) {
+                next_token();
+                if (current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN) return SYNTAX_ERROR;
+            } 
+            else if (current_token.type == TOKEN_PUNCTUATION_RIGHT_PAREN) {
+                return SYNTAX_ERROR;
+            }
+        } 
+        else if (current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN) {
             return SYNTAX_ERROR;
         }
-    } else if (current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN) {
-        return SYNTAX_ERROR;
     }
-}
 
     //)
     if(expect_token(TOKEN_PUNCTUATION_RIGHT_PAREN) != SYNTAX_OK) {
         return SYNTAX_ERROR;
+    }
+
+    if (current_token.type != TOKEN_EOL && current_token.type != TOKEN_PUNCTUATION_SEMICOLON && current_token.type != TOKEN_BLOCK_END && current_token.type != TOKEN_EOF) {
+        return SYNTAX_ERROR;
+    }
+
+    if(function == NULL || undefined_param) 
+        return SEM_ERROR_UNDEFINED;
+    if(param_count != function->paramCount) 
+        return SEM_ERROR_INVALID_ARGUMENT_COUNT;
+    
+
+    for (int i = 0; i < param_count; i++) {
+        DataType expected = function->parameterTypes[i];
+        DataType actual = param_types[i];
+
+        bool valid = false;
+        if (expected == TYPE_ANY || actual == TYPE_ANY)
+            valid = true;
+        if (expected == actual)
+            valid = true;
+        if (expected == TYPE_DOUBLE && actual == TYPE_INT)
+            valid = true;
+
+        if (!valid) 
+            return SEM_ERROR_INVALID_ARGUMENT_COUNT;
     }
 
     return SYNTAX_OK;

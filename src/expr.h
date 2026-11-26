@@ -50,4 +50,4 @@ typedef struct {
     int data_type;
 } PsaItem;
 
-int parse_expr();
+int parse_expr(DataType *out_type);

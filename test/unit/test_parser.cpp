@@ -194,7 +194,7 @@ TEST(Statements, CallWithMultipleAndUnitArgsOk) {
 @main def main(): Unit =
     foo(1, 2.5, "ahoj", x, ())
 )";
-    EXPECT_EQ(run_parser(code), SYNTAX_OK);
+    EXPECT_EQ(run_parser(code), SEM_ERROR_UNDEFINED);
 }
 
 TEST(Statements, CallWithTrailingCommaFails) {

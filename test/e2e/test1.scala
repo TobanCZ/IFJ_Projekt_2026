@@ -90,7 +90,7 @@ def main(): Unit =
     val a = readInt()
     val b = readInt()
     val d = readDouble()
-    val s = readString()
+    val s = readLine()
 
     val g = gcd(a, b)
     val sq = square(g)

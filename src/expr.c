@@ -9,7 +9,7 @@
 #include "token.h"
 #include "parser.h"
 #include "scanner.h"
-    
+
 
 //stack
 PsaItem psa_stack[MAX_STACK_SIZE];
@@ -189,7 +189,7 @@ int reduce() {
     return SYNTAX_OK;
 }
 
-int parse_expr(){
+int parse_expr(DataType *out_type){
     stack_init();
 
     PsaItem dollar_item = { .token = PSA_DOLLAR, .data_type = -1 };
