@@ -200,6 +200,7 @@ int parse() {
     on_full_pass = true;
     res          = parse_program(PASS_FULL);
     if (res != SYNTAX_OK) {
+        free_ir_list(get_ir());
         free_all_tokens();
         symtable_destroy(&table);
         symtable_stack_destroy(&stack);
@@ -1005,6 +1006,13 @@ int parse_assign() {
     return res;
 }
 
+static int cleanup_call(char **arg_addrs, int count, int code) {
+    for (int i = 0; i < count; i++) {
+        free(arg_addrs[i]);
+    }
+    return code;
+}
+
 int parse_call(DataType *out_type, char **out_addr) {
     // jmeno
     if (current_token.type != TOKEN_IDENT)
@@ -1050,12 +1058,13 @@ int parse_call(DataType *out_type, char **out_addr) {
             next_token();
         } else if (current_token.type == TOKEN_PUNCTUATION_LEFT_PAREN) {
             next_token();
-            if (expect_token(TOKEN_PUNCTUATION_RIGHT_PAREN) != SYNTAX_OK)
-                return SYNTAX_ERROR;
+            if (expect_token(TOKEN_PUNCTUATION_RIGHT_PAREN) != SYNTAX_OK) {
+                return cleanup_call(arg_addrs, param_count, SYNTAX_ERROR);
+            }
             arg_addrs[param_count]     = copy_str("nil@nil");
             param_types[param_count++] = TYPE_UNIT;
         } else {
-            return SYNTAX_ERROR;
+            return cleanup_call(arg_addrs, param_count, SYNTAX_ERROR);
         }
 
         if (current_token.type == TOKEN_PUNCTUATION_COMMA) {
@@ -1063,35 +1072,38 @@ int parse_call(DataType *out_type, char **out_addr) {
             // osetreni odradkovani mezi parametry
             if (current_token.type == TOKEN_EOL) {
                 next_token();
-                if (current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN)
-                    return SYNTAX_ERROR;
+                if (current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN) {
+                    return cleanup_call(arg_addrs, param_count, SYNTAX_ERROR);
+                }
             } else if (current_token.type == TOKEN_PUNCTUATION_RIGHT_PAREN) {
-                return SYNTAX_ERROR;
+                return cleanup_call(arg_addrs, param_count, SYNTAX_ERROR);
             }
         } else if (current_token.type != TOKEN_PUNCTUATION_RIGHT_PAREN) {
-            return SYNTAX_ERROR;
+            return cleanup_call(arg_addrs, param_count, SYNTAX_ERROR);
         }
     }
 
     //)
     if (expect_token(TOKEN_PUNCTUATION_RIGHT_PAREN) != SYNTAX_OK) {
-        return SYNTAX_ERROR;
+        return cleanup_call(arg_addrs, param_count, SYNTAX_ERROR);
     }
 
     if (current_token.type != TOKEN_EOL && current_token.type != TOKEN_PUNCTUATION_SEMICOLON &&
         current_token.type != TOKEN_BLOCK_END && current_token.type != TOKEN_EOF) {
-        return SYNTAX_ERROR;
+        return cleanup_call(arg_addrs, param_count, SYNTAX_ERROR);
     }
 
     // rekurze bez typu
     if (function != NULL && function->symbolType == TYPE_UNKNOWN) {
-        return SEM_ERROR_TYPE_MISMATCH;
+        return cleanup_call(arg_addrs, param_count, SEM_ERROR_TYPE_MISMATCH);
     }
 
-    if (function == NULL || undefined_param)
-        return SEM_ERROR_UNDEFINED;
-    if (param_count != function->paramCount)
-        return SEM_ERROR_INVALID_ARGUMENT_COUNT;
+    if (function == NULL || undefined_param) {
+        return cleanup_call(arg_addrs, param_count, SEM_ERROR_UNDEFINED);
+    }
+    if (param_count != function->paramCount) {
+        return cleanup_call(arg_addrs, param_count, SEM_ERROR_INVALID_ARGUMENT_COUNT);
+    }
 
     for (int i = 0; i < param_count; i++) {
         DataType expected = function->parameterTypes[i];
@@ -1105,8 +1117,9 @@ int parse_call(DataType *out_type, char **out_addr) {
         if (expected == TYPE_DOUBLE && actual == TYPE_INT)
             valid = true;
 
-        if (!valid)
-            return SEM_ERROR_INVALID_ARGUMENT_COUNT;
+        if (!valid) {
+            return cleanup_call(arg_addrs, param_count, SEM_ERROR_INVALID_ARGUMENT_COUNT);
+        }
     }
     if (out_type != NULL) {
         *out_type = function->symbolType;
@@ -1143,10 +1156,7 @@ int parse_call(DataType *out_type, char **out_addr) {
         }
     }
 
-    for (int i = 0; i < param_count; i++) {
-        free(arg_addrs[i]);
-    }
-    return SYNTAX_OK;
+    return cleanup_call(arg_addrs, param_count, SYNTAX_OK);
 }
 
 int parse_return() {

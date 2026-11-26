@@ -379,6 +379,7 @@ int parse_expr(DataType *out_type, char **out_addr) {
         PsaItem top_item;
 
         if (!stack_top_terminal(&top_item)) {
+            stack_cleanup();
             return INTERNAL_ERROR;
         }
 
@@ -386,11 +387,14 @@ int parse_expr(DataType *out_type, char **out_addr) {
 
         // konec pokud jsou oba $ a na zasobniku je jen E a $
         if (top_item.token == PSA_DOLLAR && input_psa_token == PSA_DOLLAR) {
-            if (current_token.type == TOKEN_OPERATOR_ASSIGN)
+            if (current_token.type == TOKEN_OPERATOR_ASSIGN) {
+                stack_cleanup();
                 return SYNTAX_ERROR;
+            }
 
             if (stack_top == 1 && psa_stack[1].token == PSA_EXPR) {
                 if (sem_error != SEM_OK) {
+                    stack_cleanup();
                     return sem_error;
                 }
                 // vraci typ
@@ -407,6 +411,7 @@ int parse_expr(DataType *out_type, char **out_addr) {
                 }
                 return SYNTAX_OK;
             }
+            stack_cleanup();
             return SYNTAX_ERROR;
         }
 
@@ -416,6 +421,7 @@ int parse_expr(DataType *out_type, char **out_addr) {
         case '<': {
             // vlozi zarazku a token
             if (stack_insert_handle() != SEM_OK) {
+                stack_cleanup();
                 return INTERNAL_ERROR;
             }
 
@@ -446,7 +452,7 @@ int parse_expr(DataType *out_type, char **out_addr) {
                 }
             }
 
-            PsaItem item;
+            PsaItem item   = {0};
             item.data_type = type;
             item.token     = input_psa_token;
             item.addr      = addr;
@@ -476,6 +482,7 @@ int parse_expr(DataType *out_type, char **out_addr) {
             // redukuje zasobnik
             int res = reduce(&sem_error);
             if (res != SYNTAX_OK) {
+                stack_cleanup();
                 return res;
             }
             break;
@@ -484,6 +491,7 @@ int parse_expr(DataType *out_type, char **out_addr) {
             // konec )
             PsaItem item = {.token = input_psa_token, .data_type = -1};
             if (stack_push(item) != SEM_OK) {
+                stack_cleanup();
                 return INTERNAL_ERROR;
             }
 
@@ -493,6 +501,7 @@ int parse_expr(DataType *out_type, char **out_addr) {
         }
         default:
             // E - chyba
+            stack_cleanup();
             return SYNTAX_ERROR;
         }
     }
