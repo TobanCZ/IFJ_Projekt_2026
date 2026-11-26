@@ -14,6 +14,8 @@ typedef enum {
     TYPE_BOOL,   // boolean type
     TYPE_UNIT,   // unit type (void)
     TYPE_ANY,    // any type
+    TYPE_UNKNOWN, // unknown type (used for functions returns)
+    TYPE_NEVER    //used for if elses with defined return type
 } DataType;
 
 typedef struct Symbol {
@@ -24,6 +26,7 @@ typedef struct Symbol {
     DataType *parameterTypes; // Dynamické pole typů
     int paramCount;           // Počet parametrů ve výše uvedeném poli
     bool isMutable;           // rozlišení var a val
+    char *irName;
 } Symbol;
 
 // Deklarace uzlu zásobníku

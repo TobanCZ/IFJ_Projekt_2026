@@ -1,3 +1,6 @@
+#ifndef IR_H
+#define IR_H
+
 typedef enum {
     OP_DEFVAR,
     OP_MOVE,
@@ -45,3 +48,4 @@ void generate_target_code(IRNode *ir_head);
 void optimizer(IRNode *ir_head);
 char *generate_unique_label(void);
 void free_ir_list(IRNode *head);
+#endif

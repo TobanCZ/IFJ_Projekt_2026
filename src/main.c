@@ -9,11 +9,9 @@
 
 
 int main(int argc, char** argv) { 
-    Symtable symtable;
-    symtable_init(&symtable);
 
     int result;
-    result = parse(&symtable);
+    result = parse();
 
     if(result == SEM_OK)
     {
@@ -23,8 +21,6 @@ int main(int argc, char** argv) {
     {
         printf("Program obsahuje chybu, kod chyby: %d\n", result);
     }
-
-    symtable_destroy(&symtable);
 
     return 0;
 }
