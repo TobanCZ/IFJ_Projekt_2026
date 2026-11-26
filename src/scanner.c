@@ -13,9 +13,14 @@
 
 // Maximum number of levels.
 #define MAX_DEPTH 256
+#define MAX_PEEK_DEPTH 16
 
 // Stack of levels.
 static int indent_levels[MAX_DEPTH] = { 0 };
+
+// Stack of tokens for peeking
+static Token peek_stack[MAX_PEEK_DEPTH];
+static int peek_depth = 0;
 
 // Number of levels.
 static int current_depth = 1;
@@ -157,7 +162,24 @@ static const struct
 
 #define KEYWORD_COUNT (sizeof(keywords) / sizeof(keywords[0]))
 
-
+// Resets the scanner to its initial state.
+void scanner_reset(void) {
+    indent_levels[0] = 0;
+    current_depth = 1;
+    peek_depth = 0;
+    block_end_count = 0;
+    block_start = false;
+    current_line = 1;
+    string_start_line = 1;
+    open_paren_depth = 0;
+    line_is_empty = true;
+    line_start_spaces = 0;
+    line_start_has_tab = false;
+    logical_line_spaces = 0;
+    is_first_char_on_line = true;
+    line_end_required = false;
+    divide_is_next = false;
+}
 
 // Returns a token with the given type and line.
 static Token make_token(TokenType type, int line)
@@ -915,11 +937,32 @@ static bool read_inside_triple_quotes(int next_character, ScannerState *current_
     return true;
 }
 
-
+Token peek_token(void)
+{
+    if (peek_depth > 0)
+    {
+        return peek_stack[peek_depth - 1];
+    }
+    else
+    {
+        Token token = get_token();
+        if (peek_depth == MAX_PEEK_DEPTH)
+        {
+            fprintf(stderr, "Internal error: peek stack overflow\n");
+            exit(99);
+        }
+        peek_stack[peek_depth++] = token;
+        return token;
+    }
+}
 
 
 static Token scan_next_token(void)
 {
+    if (peek_depth > 0) {
+        return peek_stack[--peek_depth];
+    }
+
     int character;
     ScannerState state = STATE_START;
     TokenText word = { NULL, 0, 0 };
