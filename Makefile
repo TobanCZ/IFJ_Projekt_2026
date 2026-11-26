@@ -5,12 +5,15 @@ CFLAGS = -std=c17 -Wall -Wextra -g -O2
 # Název výsledné binárky
 TARGET = ifj26
 
+# Složka pro objektové soubory (.o)
+OBJ_DIR = obj
+
 # Vyhledání všech .c souborů ve složce src/
 SRCS = $(wildcard src/*.c)
 # Vytvoření seznamu .o souborů ze seznamu .c souborů
-OBJS = $(SRCS:.c=.o)
+OBJS = $(patsubst src/%.c, $(OBJ_DIR)/%.o, $(SRCS))
 
-.PHONY: all build clean check format test
+.PHONY: all build clean check format test run unit-test clean-tests
 
 # Výchozí cíl – spustí se při prostém zavolání 'make'
 all: build
@@ -21,9 +24,13 @@ build: $(TARGET)
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $^
 
-# Pravidlo pro kompilaci .c na .o
-src/%.o: src/%.c
+# Pravidlo pro kompilaci .c na .o do složky $(OBJ_DIR)
+$(OBJ_DIR)/%.o: src/%.c $(wildcard src/*.h) | $(OBJ_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+# Vytvoření složky pro objektové soubory
+$(OBJ_DIR):
+	mkdir -p $@
 
 #Rovnou spusti
 run: build
@@ -31,7 +38,7 @@ run: build
 
 # Úklid po překladu
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -rf $(OBJ_DIR) $(TARGET)
 
 # Kontrola formátování a statická analýza (doporučeno v zadání, netestuje se na Merlinovi)
 check:
@@ -47,16 +54,15 @@ test: build
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./$(TARGET) < tests/e2e/test1.scala
 
 CXX = g++
-CXXFLAGS = -std=c++14 -Wall -g
-GTEST_LIBS = -lgtest -lgtest_main -pthread
+CXXFLAGS = -std=c++17 -Wall -g -Isrc
+GTEST_LIBS = -lgtest_main -lgtest -pthread
 
 # Najde všechny C++ testy
-TEST_SRCS = $(wildcard tests/unit/*.cpp)
+TEST_SRCS = $(wildcard test/unit/*.cpp)
 # Vyloučíme src/main.c, abychom neměli dva main() (jeden z projektu, druhý z gtest_main)
 SRC_NO_MAIN = $(filter-out src/main.c, $(SRCS))
-OBJ_NO_MAIN = $(SRC_NO_MAIN:.c=.o)
+OBJ_NO_MAIN = $(patsubst src/%.c, $(OBJ_DIR)/%.o, $(SRC_NO_MAIN))
 
-.PHONY: unit-test clean-tests
 
 # Cíl pro překlad a spuštění unit testů
 unit-test: $(OBJ_NO_MAIN)

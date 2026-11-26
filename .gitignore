@@ -1,3 +1,7 @@
 ifj26
 *.o
+obj/
+build/
 run_unit_tests
+.vscode
+test.txt
