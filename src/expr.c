@@ -10,6 +10,8 @@
 #include "parser.h"
 #include "scanner.h"
 #include "symtable.h"
+#include "ir_builder.h"
+#include "help.h"
 
 
 //stack
@@ -34,6 +36,21 @@ bool stack_pop(PsaItem *out) {
     }
     *out = psa_stack[stack_top--];
     return true;
+}
+
+void stack_cleanup(void) {
+    while (stack_top >= 0) {
+        free(psa_stack[stack_top].addr);
+        psa_stack[stack_top].addr = NULL;
+        stack_top--;
+    }
+}
+
+static void free_items(PsaItem *items, int count) {
+    for (int i = 0; i < count; i++) {
+        free(items[i].addr);
+        items[i].addr = NULL;
+    }
 }
 
 //vrati prvni terminal
@@ -64,6 +81,8 @@ int stack_insert_handle() {
             }
             psa_stack[i + 1].token = PSA_HANDLE;
             psa_stack[i + 1].data_type = -1; 
+            psa_stack[i + 1].is_expression = false;
+            psa_stack[i + 1].addr = NULL;
             stack_top++;
             return SEM_OK;
         }
@@ -161,6 +180,7 @@ int reduce(int *sem_error) {
     }
 
     DataType result_type = TYPE_UNKNOWN;
+    char *result_addr = NULL;
 
     //pravidla 
     if(count == 1) {
@@ -169,6 +189,8 @@ int reduce(int *sem_error) {
             return SYNTAX_ERROR;
         }
         result_type = items[0].data_type;
+        result_addr = items[0].addr;
+        items[0].addr = NULL;
     }
     else if(count == 2) {
         //unarni minus -E
@@ -179,12 +201,21 @@ int reduce(int *sem_error) {
             if (*sem_error == SEM_OK) //aby se neprebila s jiz nalezenou chybou
                 *sem_error = SEM_ERROR_TYPE_MISMATCH;
         }
+        //prida 0 a odecte
+        else if (on_full_pass && *sem_error == SEM_OK) {
+            char *tmp = ir_create_tmp();
+            const char *zero = (items[0].data_type == TYPE_DOUBLE) ? "float@0.0" : "int@0";
+            ir_add(OP_SUB, tmp, zero, items[0].addr);
+            result_addr = tmp;
+        }
         result_type = items[0].data_type;
     }
     else if(count == 3) 
     {   //vyraz v zavorkach ( E)
        if (items[2].token == PSA_LEFT_PAREN && items[1].token == PSA_EXPR && items[0].token == PSA_RIGHT_PAREN) {
             result_type = items[1].data_type;
+            result_addr = items[1].addr;
+            items[1].addr = NULL;
         }
         // vyrazi s operatorem E operand E
        else if (items[2].token == PSA_EXPR && is_operator(items[1].token) && items[0].token == PSA_EXPR) {
@@ -192,6 +223,7 @@ int reduce(int *sem_error) {
             DataType right = items[0].data_type;
             int op = items[1].token;
 
+            //semantika
             switch (op) {
                 case PSA_PLUS:
                     if (left == TYPE_STRING && right == TYPE_STRING) {
@@ -242,22 +274,94 @@ int reduce(int *sem_error) {
                 default:
                     return SYNTAX_ERROR;
             }
-        } else {
+
+            //generace ir
+            if (on_full_pass && *sem_error == SEM_OK) {
+                char *left_addr = items[2].addr;
+                char *right_addr = items[0].addr;
+                items[2].addr = NULL;
+                items[0].addr = NULL;
+
+                //konverze int na double
+                if (left == TYPE_INT && right == TYPE_DOUBLE) {
+                    char *conv = ir_create_tmp();
+                    ir_add(OP_INT2FLOAT, conv, left_addr, NULL);
+                    free(left_addr);
+                    left_addr = conv;
+                } else if (left == TYPE_DOUBLE && right == TYPE_INT) {
+                    char *conv = ir_create_tmp();
+                    ir_add(OP_INT2FLOAT, conv, right_addr, NULL);
+                    free(right_addr);
+                    right_addr = conv;
+                }
+
+                result_addr = ir_create_tmp();
+
+                switch (op) {
+                    case PSA_PLUS:
+                        ir_add((left == TYPE_STRING) ? OP_CONCAT : OP_ADD, result_addr, left_addr, right_addr);
+                        break;
+                    case PSA_MINUS:
+                        ir_add(OP_SUB, result_addr, left_addr, right_addr);
+                        break;
+                    case PSA_MULTIPLY:
+                        ir_add(OP_MUL, result_addr, left_addr, right_addr);
+                        break;
+                    case PSA_DIVIDE:
+                        ir_add((result_type == TYPE_INT) ? OP_IDIV : OP_DIV, result_addr, left_addr, right_addr);
+                        break;
+                    case PSA_LESS:
+                        ir_add(OP_LT, result_addr, left_addr, right_addr);
+                        break;
+                    case PSA_GREATER:
+                        ir_add(OP_GT, result_addr, left_addr, right_addr);
+                        break;
+                    case PSA_EQUAL:
+                        ir_add(OP_EQ, result_addr, left_addr, right_addr);
+                        break;
+                    case PSA_NOT_EQUAL: {
+                        char *eq_tmp = ir_create_tmp();
+                        ir_add(OP_EQ, eq_tmp, left_addr, right_addr);
+                        ir_add(OP_NOT, result_addr, eq_tmp, NULL);
+                        free(eq_tmp);
+                        break;
+                    }
+                    case PSA_LESS_EQUAL:
+                    case PSA_GREATER_EQUAL: {
+                        char *cmp_tmp = ir_create_tmp();
+                        char *eq_tmp = ir_create_tmp();
+                        ir_add((op == PSA_LESS_EQUAL) ? OP_LT : OP_GT, cmp_tmp, left_addr, right_addr);
+                        ir_add(OP_EQ, eq_tmp, left_addr, right_addr);
+                        ir_add(OP_OR, result_addr, cmp_tmp, eq_tmp);
+                        free(cmp_tmp);
+                        free(eq_tmp);
+                        break;
+                    }
+                    default:
+                        break;
+                }
+
+                free(left_addr);
+                free(right_addr);
+            }
+        } 
+        else {
             return SYNTAX_ERROR;
         }
     }
 
+    free_items(items, count);
     PsaItem expr_item;
     expr_item.token = PSA_EXPR;
     expr_item.data_type = result_type;
-    
+    expr_item.addr = result_addr;
     if (stack_push(expr_item) != SEM_OK)
         return INTERNAL_ERROR;
 
     return SYNTAX_OK;
 }
 
-int parse_expr(DataType *out_type){
+int parse_expr(DataType *out_type, char **out_addr){
     stack_init();
 
     PsaItem dollar_item = { .token = PSA_DOLLAR, .data_type = -1 };
@@ -286,8 +390,17 @@ int parse_expr(DataType *out_type){
                 if (sem_error != SEM_OK) {
                     return sem_error;
                 }
+                //vraci typ
                 if (out_type != NULL) {
                     *out_type = psa_stack[1].data_type;
+                }
+                //vraci adresu
+                if (out_addr != NULL) {
+                    *out_addr = psa_stack[1].addr;
+                    psa_stack[1].addr = NULL;
+                } else {
+                    free(psa_stack[1].addr);
+                    psa_stack[1].addr = NULL;
                 }
                 return SYNTAX_OK;
             }
@@ -303,7 +416,10 @@ int parse_expr(DataType *out_type){
                     return INTERNAL_ERROR;
                 }
 
+                char *addr = NULL;
                 DataType type = TYPE_UNKNOWN;
+
+                // E operand
                 if (input_psa_token == PSA_OPERAND) {
                     if (current_token.type == TOKEN_IDENT) {
                         Symbol *sym = symtable_stack_find(&stack, current_token.value);
@@ -312,12 +428,19 @@ int parse_expr(DataType *out_type){
                                 sem_error = SEM_ERROR_UNDEFINED;
                         } 
                         else {
-                            type = sym->symbolType; // <-- bez 'else' to pri NULL spadne!
+                            type = sym->symbolType;
+                            if (on_full_pass && sym->irName != NULL) {
+                                addr = copy_str(sym->irName);
+                            }
                         }           
                     } else if (current_token.type == TOKEN_PUNCTUATION_LEFT_PAREN) {
                         type = TYPE_UNIT;
+                        if (on_full_pass) 
+                            addr = copy_str("nil@nil");
                     } else {
                         type = token_type_to_data_type(current_token.type);
+                        if (on_full_pass) 
+                            addr = ir_from_token_to_operand(current_token);
                     }
                 }
 
@@ -325,8 +448,10 @@ int parse_expr(DataType *out_type){
                 PsaItem item;
                 item.data_type = type;
                 item.token = input_psa_token;
+                item.addr = addr;
 
                 if (stack_push(item) != SEM_OK) {
+                    stack_cleanup();
                     return INTERNAL_ERROR;
                 }
 

@@ -9,6 +9,8 @@
 #include "scanner.h"
 #include "expr.h"
 #include "help.h"
+#include "ir_builder.h"
+#include "ir.h"
 
 #define MAX_PARAM_COUNT 1024
 
@@ -17,7 +19,7 @@ int add_builtins_functions(Symtable *table);
 int parse_program(ParsePass pass);
 int parse_func_def(ParsePass pass);
 
-int parse_expr_or_call(DataType *out_type);
+int parse_expr_or_call(DataType *out_type, char **out_addr);
 int parse_block(DataType *out_type);
 
 int parse_statement();
@@ -34,6 +36,7 @@ static Symtable table; //funkce
 SymtableStack stack;  //promenne a parametry
 
 Token current_token;
+ bool on_full_pass;
 bool has_main = false;
 int current_scope = 0;
 Symbol *current_function = NULL;
@@ -132,7 +135,9 @@ int token_type_to_data_type(TokenType token_type) {
 
 int parse() {
     has_main = false;
+    on_full_pass = false;
     current_scope = 0;
+    ir_builder_init();
     scanner_reset();
     symtable_init(&table);
     symtable_stack_init(&stack);
@@ -173,7 +178,19 @@ int parse() {
     //treti pruchod
     token_index = 0;
     has_main = false;
+    on_full_pass = true;
     res = parse_program(PASS_FULL);
+    if(res != SYNTAX_OK) {
+        free_all_tokens();
+        symtable_destroy(&table);
+        symtable_stack_destroy(&stack);
+        return res;
+    }
+
+    IRNode *head = get_ir();
+    optimizer(head);
+    generate_target_code(head);
+    free_ir_list(head);
 
     free_all_tokens();
     symtable_destroy(&table);
@@ -183,7 +200,7 @@ int parse() {
 
 //pridani vestavenych funkci TODO: mozna to dat do funkce protoze se toho dost opakuje
 int add_builtins_functions(Symtable *table) {
-    Symbol function;
+    Symbol function = {0};
 
     function.name = "print";
     function.symbolType = TYPE_UNIT;
@@ -387,7 +404,11 @@ int parse_func_params(DataType *parameterTypes, int *param_counter) {
         parameterTypes[*param_counter] = token_type_to_data_type(current_token.type);
         (*param_counter)++;
         
-        Symbol param;
+        //vygenerovani ir nazvu parametru
+        char ir_buf[32];
+        snprintf(ir_buf, sizeof(ir_buf), "LF@%%%d", *param_counter - 1);
+
+        Symbol param = {0};
         param.name = param_name;
         param.symbolType = token_type_to_data_type(current_token.type);
         param.scopeLevel = current_scope;
@@ -395,6 +416,7 @@ int parse_func_params(DataType *parameterTypes, int *param_counter) {
         param.isMutable = false;
         param.paramCount = 0;
         param.parameterTypes = NULL;
+        param.irName = ir_buf;
         symtable_stack_insert(&stack, param.name, param);
         free(param_name);
         next_token();
@@ -424,7 +446,7 @@ int parse_func_body(){
             return res;
     } 
     else {
-        int res = parse_expr_or_call(&ret_type);
+        int res = parse_expr_or_call(&ret_type, NULL);
         if (res != SYNTAX_OK)
             return res;
 
@@ -575,7 +597,7 @@ int parse_func_def(ParsePass pass) {
     if (res == SYNTAX_OK) {
         //prvnvi pruchod
         if (pass == PASS_HEADERS) {
-            Symbol function;
+            Symbol function = {0};
             function.name = func_name;
             function.symbolType = token_type_to_data_type(ret_type);
             function.scopeLevel = 0;
@@ -648,14 +670,14 @@ int parse_block(DataType *out_type) {
     return SYNTAX_OK;
 }
 
-int parse_expr_or_call(DataType *out_type) {
+int parse_expr_or_call(DataType *out_type, char **out_addr) {
     if (current_token.type == TOKEN_IDENT) {
         Token next = peek_token();
         if (next.type == TOKEN_PUNCTUATION_LEFT_PAREN) {
-            return parse_call(out_type);
+            return parse_call(out_type, out_addr);
         }
     }
-    return parse_expr(out_type);
+    return parse_expr(out_type, out_addr);
 }
 
 int parse_statement(DataType *out_type) {
@@ -700,11 +722,11 @@ int parse_statement(DataType *out_type) {
             res = parse_call(&statement_type);
         } 
         else {
-            res = parse_expr(&statement_type);
+            res = parse_expr(&statement_type, NULL);
         }
     } 
     else if (current_token.type == TOKEN_PUNCTUATION_LEFT_PAREN || current_token.type == TOKEN_OPERATOR_MINUS || current_token.type == TOKEN_INT || current_token.type == TOKEN_DOUBLE || current_token.type == TOKEN_STRING ||current_token.type == TOKEN_KW_UNIT) {
-        res = parse_expr(&statement_type);
+        res = parse_expr(&statement_type, NULL);
     } 
     else {
         return SYNTAX_ERROR;
@@ -765,7 +787,8 @@ int parse_def() {
     }
 
     DataType expr_type = TYPE_UNKNOWN;
-    int res = parse_expr_or_call(&expr_type);
+    char *expr_addr = NULL; 
+    int res = parse_expr_or_call(&expr_type, &expr_addr);
 
     if(res == SYNTAX_OK) {
         //Nemuze byt vyraz
@@ -786,7 +809,7 @@ int parse_def() {
             }
         }
 
-        Symbol symbol;
+        Symbol symbol = {0};
         symbol.name = name;
         symbol.symbolType = data_type;
         symbol.scopeLevel = current_scope;
@@ -795,8 +818,26 @@ int parse_def() {
         symbol.paramCount = 0;
         symbol.parameterTypes = NULL;
         symtable_stack_insert(&stack, symbol.name, symbol);
+
+        char *var_ir_name = NULL;
+        if (on_full_pass) {
+            var_ir_name = ir_create_local_var(name);
+            symbol.irName = var_ir_name;
+
+            if (expr_addr != NULL) {
+                if (data_type == TYPE_DOUBLE && expr_type == TYPE_INT) {
+                    ir_add(OP_INT2FLOAT, var_ir_name, expr_addr, NULL);
+                } else {
+                    ir_add(OP_MOVE, var_ir_name, expr_addr, NULL);
+                }
+            }
+        }
+
+        symtable_stack_insert(&stack, symbol.name, symbol);
+        free(var_ir_name);
     }
    
+    free(expr_addr);
     free(name);
     return res;
 }
@@ -818,19 +859,28 @@ int parse_assign() {
         return SYNTAX_ERROR;
 
     DataType expr_type = TYPE_UNKNOWN;
-    int res = parse_expr_or_call(&expr_type);
-    if(res != SYNTAX_OK) 
+    char *expr_addr = NULL;
+    int res = parse_expr_or_call(&expr_type, &expr_addr);
+
+    if(res != SYNTAX_OK) {
+        free(expr_addr);
         return res;
+    }
 
     if (symbol == NULL) {
+        free(expr_addr);
         return SEM_ERROR_UNDEFINED;
     }
     if(!symbol->isMutable) {
+        free(expr_addr);
         return SEM_ERROR_INVALID_WRITE;
     }
     //Nemuze byt vyraz
     if (expr_type == TYPE_BOOL) 
+    {
+        free(expr_addr);
         return SEM_ERROR_TYPE_MISMATCH;
+    }
 
     if (symbol->symbolType == TYPE_ANY) {
         if (expr_type != TYPE_UNKNOWN) {
@@ -839,14 +889,27 @@ int parse_assign() {
     } 
     else if (expr_type != TYPE_UNKNOWN) {
         bool valid = (symbol->symbolType == expr_type) || (symbol->symbolType == TYPE_DOUBLE && expr_type == TYPE_INT);
-        if (!valid)
+        if (!valid){
+            free(expr_addr);
             return SEM_ERROR_TYPE_MISMATCH;
+        }
     }
 
+    //pokud cislo, tak pretypovat, jinak jen presunout hodnotu
+    if (on_full_pass && symbol->irName != NULL && expr_addr != NULL) {
+    if (symbol->symbolType == TYPE_DOUBLE && expr_type == TYPE_INT) {
+        ir_add(OP_INT2FLOAT, symbol->irName, expr_addr, NULL);
+    } 
+    else {
+        ir_add(OP_MOVE, symbol->irName, expr_addr, NULL);
+    }
+    }
+
+    free(expr_addr);
     return res;
 }
 
-int parse_call(DataType *out_type) {
+int parse_call(DataType *out_type, char **out_addr) {
     //jmeno
     if(current_token.type != TOKEN_IDENT)
         return SYNTAX_ERROR;
@@ -964,7 +1027,7 @@ int parse_return() {
         current_token.type != TOKEN_PUNCTUATION_SEMICOLON &&
         current_token.type != TOKEN_BLOCK_END &&
         current_token.type != TOKEN_EOF) {
-        int res = parse_expr_or_call(&ret_type);
+        int res = parse_expr_or_call(&ret_type, NULL);
         if (res != SYNTAX_OK) {
             return res;
         }
@@ -1003,18 +1066,37 @@ int parse_if(DataType *out_type) {
 
     //vyraz
     DataType condition_type = TYPE_UNKNOWN;
-    int res = parse_expr(&condition_type);
-    if (res != SYNTAX_OK)
+    char *addr = NULL;
+    int res = parse_expr(&condition_type, &addr);
+    if (res != SYNTAX_OK){
+        free(addr);
         return res;
+    }
 
     //then
-    if(expect_token(TOKEN_KW_THEN) != SYNTAX_OK) 
+    if(expect_token(TOKEN_KW_THEN) != SYNTAX_OK) { 
+        free(addr);
         return SYNTAX_ERROR;
-    if(expect_token(TOKEN_EOL) != SYNTAX_OK)
+    }
+    if(expect_token(TOKEN_EOL) != SYNTAX_OK){ 
+        free(addr);
         return SYNTAX_ERROR;
+    }
+
+    //vygenerovani podminky
+    char *label_else = NULL;
+    char *label_end = NULL;
+    if (on_full_pass && addr != NULL) {
+        label_else = ir_create_label("if_else");
+        label_end = ir_create_label("if_end");
+        ir_add(OP_JUMPIFEQ, label_else, addr, "bool@false");
+    }
+    free(addr);
 
     //blok 
     if (!symtable_stack_push(&stack)) {
+        free(label_else);
+        free(label_end);
         return INTERNAL_ERROR;
     }
     current_scope++;
@@ -1025,17 +1107,33 @@ int parse_if(DataType *out_type) {
     symtable_stack_pop(&stack);
     current_scope--;
     if(res != SYNTAX_OK) {
+        free(label_else);
+        free(label_end);
         return res;
     }
 
+    //vygenerovani skoku na konec
+    if (on_full_pass) {
+        ir_add(OP_JUMP, label_end, NULL, NULL);
+        ir_add(OP_LABEL, label_else, NULL, NULL);
+    }
+
     //else
-    if(expect_token(TOKEN_KW_ELSE) != SYNTAX_OK)
+    if(expect_token(TOKEN_KW_ELSE) != SYNTAX_OK){
+        free(label_else);
+        free(label_end);
         return SYNTAX_ERROR;
-    if(expect_token(TOKEN_EOL) != SYNTAX_OK)
+    }
+    if(expect_token(TOKEN_EOL) != SYNTAX_OK){
+        free(label_else);
+        free(label_end);
         return SYNTAX_ERROR;
+    }
 
     //else blok
     if (!symtable_stack_push(&stack)) {
+        free(label_else);
+        free(label_end);
         return INTERNAL_ERROR;
     }
     current_scope++;
@@ -1045,6 +1143,13 @@ int parse_if(DataType *out_type) {
 
     symtable_stack_pop(&stack);
     current_scope--;
+
+    if (on_full_pass) {
+        ir_add(OP_LABEL, label_end, NULL, NULL);
+    }
+    free(label_else);
+    free(label_end);
+
     if (res != SYNTAX_OK) {
         return res;
     }
@@ -1077,7 +1182,7 @@ int parse_while() {
 
     //vyraz
     DataType condition_type = TYPE_UNKNOWN;
-    int res = parse_expr(&condition_type);
+    int res = parse_expr(&condition_type, NULL);
     if (res != SYNTAX_OK)
         return res;
     //do

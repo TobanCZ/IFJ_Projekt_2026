@@ -15,6 +15,7 @@ static void free_symbol(void *data) {
         free(sym->parameterTypes);
     }
     free(sym->name);
+    free(sym->irName);
     free(sym);
 }
 
@@ -38,6 +39,7 @@ bool symtable_insert(Symtable *table, const char *key, Symbol data) {
     *copy = data;
     //Hluboka kopie
     copy->name = data.name ? copy_str(data.name) : NULL;
+    copy->irName = data.irName ? copy_str(data.irName) : NULL;
     if (data.paramCount > 0 && data.parameterTypes != NULL) {
         copy->parameterTypes = malloc(sizeof(DataType) * data.paramCount);
         memcpy(copy->parameterTypes, data.parameterTypes, sizeof(DataType) * data.paramCount);
@@ -46,7 +48,7 @@ bool symtable_insert(Symtable *table, const char *key, Symbol data) {
     }
 
     if (!bst_insert((BSTNode **)table, key, copy)) {
-        free(copy); // Klíč už v tabulce existuje nebo selhala alokace v BST
+        free_symbol(copy); // Klíč už v tabulce existuje nebo selhala alokace v BST
         return false;
     }
     return true;

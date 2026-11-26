@@ -26,6 +26,7 @@ typedef struct Symbol {
     DataType *parameterTypes; // Dynamické pole typů
     int paramCount;           // Počet parametrů ve výše uvedeném poli
     bool isMutable;           // rozlišení var a val
+    char *irName;
 } Symbol;
 
 // Deklarace uzlu zásobníku

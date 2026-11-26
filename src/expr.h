@@ -50,6 +50,8 @@ static const char precedent_table[15][15] = {
 typedef struct {
     int token;
     int data_type;
+    bool is_expression;
+    char *addr;
 } PsaItem;
 
-int parse_expr(DataType *out_type);
+int parse_expr(DataType *out_type, char **out_addr);

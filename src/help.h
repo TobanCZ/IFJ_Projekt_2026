@@ -1,3 +1,7 @@
+/*
+    Implementace překladače imperativního jazyka IFJ26.
+*/
+
 #include <stdlib.h>
 #include <string.h>
 

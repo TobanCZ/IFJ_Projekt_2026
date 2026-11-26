@@ -28,6 +28,7 @@ typedef enum {
 
 int parse();
 
+extern bool on_full_pass;
 extern Token current_token;
 void next_token(void);
 Token peek_token(void);
