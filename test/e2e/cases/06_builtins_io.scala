@@ -1,0 +1,25 @@
+import ifj26.*
+
+@main def main(): Unit =
+    val i1 = readInt()
+    val i2 = readInt()
+    val d1 = readDouble()
+    val d2 = readDouble()
+    val s1 = readLine()
+    val s2 = readLine()
+    val neg = -3.9
+    val ti1 = toInt(3.9)
+    val ti2 = toInt(neg)
+    val u = ()
+    val sd1 = toStr(d1)
+    val sd2 = toStr(d2)
+    val su = toStr(u)
+    print(i1); print("|")
+    print(i2); print("|")
+    print(sd1); print("|")
+    print(sd2); print("|")
+    print(s1); print("|")
+    print(s2); print("|")
+    print(ti1); print("|")
+    print(ti2); print("|")
+    print(su); print("\n")

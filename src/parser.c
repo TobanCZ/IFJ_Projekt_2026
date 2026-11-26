@@ -82,6 +82,10 @@ int load_all_tokens(){
             free_all_tokens();
             return LEX_ERROR;
         }
+        if (current.type == TOKEN_SYNTAX_ERROR) {
+            free_all_tokens();
+            return SYNTAX_ERROR;
+        }
         if(current.type == TOKEN_INTERNAL_ERROR) {
             free_all_tokens();
             return INTERNAL_ERROR;
@@ -1156,11 +1160,13 @@ int parse_return() {
 
     DataType ret_type = TYPE_UNIT;
     char *return_addr = NULL;
+    bool has_expr = false;
 
     if (current_token.type != TOKEN_EOL &&
         current_token.type != TOKEN_PUNCTUATION_SEMICOLON &&
         current_token.type != TOKEN_BLOCK_END &&
         current_token.type != TOKEN_EOF) {
+        has_expr = true;
         int res = parse_expr_or_call(&ret_type, &return_addr);
         if (res != SYNTAX_OK) {
             free(return_addr);
@@ -1180,7 +1186,7 @@ int parse_return() {
         return SEM_ERROR_TYPE_MISMATCH;
     }
 
-    if (ret_type == TYPE_UNIT && current_function != NULL && current_function->symbolType != TYPE_UNIT) {
+    if (!has_expr && current_function != NULL && current_function->symbolType != TYPE_UNIT) {
         free(return_addr);
         return SEM_ERROR_OTHER;
     }
